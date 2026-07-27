@@ -253,7 +253,9 @@
     color: var(--gold);
     font-variant-numeric: tabular-nums;
   }
-  .finalscore span {
+  /* Direct child only: the two-player scores are spans INSIDE the <b>, and a
+     loose `.finalscore span` would shrink them to caption size and stack them. */
+  .finalscore > span {
     display: block;
     margin-top: 6px;
     font-size: 10px;
@@ -327,13 +329,7 @@
 
   .scoreboard.duo { flex-direction: row; gap: 26px; align-items: flex-start; }
   .scoreboard .seat { display: flex; flex-direction: column; align-items: center; gap: 4px; }
-  .finalscore .vs {
-    font-family: var(--font-ui);
-    font-size: 22px;
-    color: var(--muted);
-    margin: 0 12px;
-    vertical-align: middle;
-  }
+  .finalscore .gap { display: inline-block; width: 44px; }
 
   .levels {
     display: grid;
@@ -506,7 +502,7 @@
       <h2>Unhorsed for good</h2>
       <p>Every knight in the stable has hit the dirt.</p>
     </div>
-    <div class="finalscore"><b id="fj-final">0</b><span>points</span></div>
+    <div class="finalscore"><b id="fj-final">0</b><span id="fj-finalcaption">points</span></div>
     <div class="over-buttons">
       <button id="fj-again" type="button">Ride again</button>
       <button id="fj-pick" type="button">Choose ground</button>
@@ -616,6 +612,8 @@
     enemyHold: 0.34,      // sec it keeps its tongue out
     enemyRest: 1.6,       // sec between a rival's shots
     respawnDelay: 3.0,    // sec before an unhorsed rival is replaced
+    enemyLookahead: 0.6,  // sec of oncoming traffic a rival anticipates
+    enemyLogWait: 3.0,    // sec a rival will wait on the bank for a log
     graceTime: 1.8,       // sec you cannot be tongued after coming back
 
     // --- input
@@ -821,6 +819,10 @@
       blip("square", base, base, 0.09, 0.06);
       blip("square", base * 1.5, base * 1.5, 0.16, 0.05, 0.07);
       blip("sine", base * 2, base * 2, 0.2, 0.035, 0.12);
+    },
+    depart: function () {                                  // second knight stands down
+      blip("sine", 620, 400, 0.13, 0.05);
+      blip("sine", 400, 280, 0.16, 0.035, 0.07);
     },
     recover: function () {                                 // just your own gear back
       blip("sine", 440, 660, 0.12, 0.05);
@@ -1588,6 +1590,47 @@
     return null;
   }
 
+  // --- what a rival can see coming -------------------------------------
+
+  // Is a cart on top of this square, or about to be within `horizon` seconds?
+  // Used both to refuse a square and to decide it is time to leave one.
+  function carThreat(cx, cy, horizon) {
+    for (var i = 0; i < hazards.length; i++) {
+      var z = hazards[i];
+      if (z.kind !== "car" || z.y !== Math.round(cy)) continue;
+      var half = z.len / 2 + 0.5;              // the cart, plus a toad's width
+      if (Math.abs(cx - z.x) <= half) return true;
+      if (!z.vx) continue;
+      var lead = z.x + (z.vx > 0 ? half : -half);
+      var t = (cx - lead) / z.vx;              // when the front of it arrives
+      if (t >= 0 && t <= horizon) return true;
+    }
+    return false;
+  }
+
+  // Will a log be under this square within `horizon` seconds? This is what
+  // lets a rival stand on the bank and wait for its ride instead of pacing.
+  function logComing(cx, cy, horizon) {
+    for (var i = 0; i < hazards.length; i++) {
+      var z = hazards[i];
+      if (z.kind !== "log" || z.sinking > 0 || z.y !== Math.round(cy)) continue;
+      var half = z.len / 2;
+      if (Math.abs(cx - z.x) <= half) return true;
+      if (!z.vx) continue;
+      var lead = z.x + (z.vx > 0 ? half : -half);
+      var t = (cx - lead) / z.vx;
+      if (t >= 0 && t <= horizon) return true;
+    }
+    return false;
+  }
+
+  // A log about to go under the far edge, taking its passenger with it.
+  function logDoomed(z) {
+    var R = bound();
+    var lead = z.x + (z.vx > 0 ? z.len / 2 : -z.len / 2);
+    return z.vx > 0 ? lead > R - 0.75 : lead < -R + 0.75;
+  }
+
   function carHitting(m) {
     var row = Math.round(m.y);
     for (var i = 0; i < hazards.length; i++) {
@@ -1851,6 +1894,22 @@
     // --- moving
     if (m.state !== "idle" || m.tongue.state === "extend") return;
     m.hopTimer -= dt;
+
+    // Two things do not wait for the hop timer, because by the time it comes
+    // round the rival is already under a cart or under the water.
+    var here = laneAt(m.y).type;
+    if (here === "road" && carThreat(m.x, m.y, CFG.enemyLookahead * 1.6)) {
+      var bolt = escapeFrom(m);
+      if (bolt) { startHop(m, bolt); m.hopTimer = CFG.enemyHopEvery * 0.4; return; }
+    }
+    if (here === "water") {
+      var raft = supportUnder(m);
+      if (raft && logDoomed(raft)) {
+        var jump = escapeFrom(m);
+        if (jump) { startHop(m, jump); m.hopTimer = CFG.enemyHopEvery * 0.4; return; }
+      }
+    }
+
     if (m.hopTimer > 0) return;
     m.hopTimer = CFG.enemyHopEvery * (0.75 + Math.random() * 0.5);
 
@@ -1868,8 +1927,24 @@
       ? { x: 0, y: dy < 0 ? -1 : 1 }
       : { x: dx < 0 ? -1 : 1, y: 0 };
 
-    if (canStandAt(m, first)) startHop(m, first);
-    else if ((Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) && canStandAt(m, second)) startHop(m, second);
+    if (canStandAt(m, first)) { startHop(m, first); return; }
+
+    // Blocked. If it is water in the way and a log is on its way to that very
+    // square, stand still and wait for the ride rather than pacing the bank —
+    // pacing is what stops a rival ever getting across.
+    if (waitingForLog(m, first) || waitingForLog(m, second)) {
+      m.hopTimer = Math.min(m.hopTimer, 0.15);
+      return;
+    }
+
+    if ((Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) && canStandAt(m, second)) startHop(m, second);
+  }
+
+  function waitingForLog(m, dir) {
+    var tx = wrapCoord(Math.round(m.x) + dir.x * CFG.hopCells);
+    var ty = wrapCoord(Math.round(m.y) + dir.y * CFG.hopCells);
+    if (laneAt(ty).type !== "water") return false;
+    return logComing(tx, ty, CFG.enemyLogWait);
   }
 
   // The closest helm worth crossing the field for, as an offset from the mount.
@@ -1896,12 +1971,35 @@
     // Taken squares are not options — a rival that tried anyway would just
     // bounce on the spot and look stuck.
     if (cellOccupied(tx, ty, m)) return false;
-    if (laneAt(ty).type !== "water") return true;
+
+    var kind = laneAt(ty).type;
+    if (kind === "road") return !carThreat(tx, ty, CFG.enemyLookahead);
+    if (kind !== "water") return true;
+
+    // Water is only ground if there is a log on it — and not one that is
+    // about to go under the far edge.
     for (var i = 0; i < hazards.length; i++) {
       var z = hazards[i];
-      if (z.kind === "log" && !z.sinking && z.y === ty && Math.abs(tx - z.x) <= z.len / 2) return true;
+      if (z.kind !== "log" || z.sinking > 0 || z.y !== ty) continue;
+      if (Math.abs(tx - z.x) <= z.len / 2 && !logDoomed(z)) return true;
     }
     return false;
+  }
+
+  // Anywhere safe from here, nearest first. Used when a rival has to leave
+  // where it is standing rather than choosing where to go next.
+  function escapeFrom(m) {
+    var dirs = [{ x: 0, y: -1 }, { x: 0, y: 1 }, { x: -1, y: 0 }, { x: 1, y: 0 }];
+    var best = null, bestScore = -1;
+    for (var i = 0; i < dirs.length; i++) {
+      if (!canStandAt(m, dirs[i])) continue;
+      var ty = wrapCoord(Math.round(m.y) + dirs[i].y * CFG.hopCells);
+      // Dry land beats another log, which beats another stretch of road.
+      var kind = laneAt(ty).type;
+      var score = kind === "grass" ? 3 : (kind === "water" ? 2 : 1);
+      if (score > bestScore) { bestScore = score; best = dirs[i]; }
+    }
+    return best;
   }
 
   // A dropped helm plays by the same rules as everything else on the field: it
@@ -2556,15 +2654,29 @@
     ctx.save();
     ctx.translate(ox - f.x * 2, oy);
 
-    ctx.strokeStyle = trim;
-    ctx.lineWidth = 3;
-    ctx.lineCap = "round";
-    for (var i = -1; i <= 1; i++) {
-      ctx.beginPath();
-      ctx.moveTo(-f.x * 4, -20);
-      ctx.quadraticCurveTo(-f.x * 13, -27 + i * 2, -f.x * 22, -19 + i * 5);
-      ctx.stroke();
+    // The plume is mounted on the helm, so a bare head has none. It trails
+    // directly away from the facing — using only f.x, as this did, made it
+    // collapse to nothing whenever a knight faced the camera or away from it,
+    // which is half of the four directions.
+    var bx = -f.x, by = -f.y;            // backwards
+    var px = -f.y, py = f.x;             // and the spread across it
+    function plume() {
+      if (bare) return;
+      ctx.strokeStyle = trim;
+      ctx.lineWidth = 3;
+      ctx.lineCap = "round";
+      for (var i = -1; i <= 1; i++) {
+        ctx.beginPath();
+        ctx.moveTo(bx * 4, -20 + by * 4);
+        ctx.quadraticCurveTo(bx * 13 + px * i * 2, -25 + by * 13 + py * i * 2,
+                             bx * 22 + px * i * 5, -20 + by * 22 + py * i * 5);
+        ctx.stroke();
+      }
     }
+
+    // Facing away, the plume falls toward the camera and lies over the rider's
+    // back; facing us, it is behind him. Draw it on whichever side it belongs.
+    if (f.y >= 0) plume();
 
     ctx.fillStyle = armor;
     ctx.beginPath();
@@ -2609,6 +2721,7 @@
       ctx.fillStyle = "#0b1614";
       ctx.fillRect(f.x * 2.2 - 5.5, -20, 11, 3.2);
     }
+    if (f.y < 0) plume();
     ctx.restore();
   }
 
@@ -2769,13 +2882,15 @@
         }
         elFinal.innerHTML = players.map(function (p, i) {
           return '<span style="color:' + SEATS[i].css + '">' + p.score + "</span>";
-        }).join('<span class="vs">v</span>');
-        var caption = elOver.querySelector(".finalscore span");
+        }).join('<i class="gap"></i>');
+        var caption = document.getElementById("fj-finalcaption");
         if (caption) {
           caption.textContent = win ? SEATS[win.seat].name + " knight takes it" : "honours even";
         }
       } else {
         elFinal.textContent = String(players[0].score);
+        var solo = document.getElementById("fj-finalcaption");
+        if (solo) solo.textContent = "points";
       }
     }
     showScreen("over");
@@ -2914,6 +3029,22 @@
     }
     audioStart();
     sfx.respawn();
+  }
+
+  // ...and can leave the same way. Versus goes back to co-op on the way out,
+  // since there is nobody left to fight.
+  function leavePlayerTwo() {
+    if (partySize < 2) return;
+    partySize = 1;
+    versus = false;
+    renderRiders();
+    if (elModes) {
+      var bs = elModes.querySelectorAll("button");
+      for (var i = 0; i < bs.length; i++) bs[i].disabled = true;
+      bs[0].setAttribute("aria-pressed", "true");
+      bs[1].setAttribute("aria-pressed", "false");
+    }
+    sfx.depart();
   }
 
   function setMode(toVersus) {
@@ -3120,7 +3251,8 @@
       var shootSeat = seatOfShootKey(e);
 
       if (shootSeat === 1 && onSetup()) {
-        joinPlayerTwo();                       // right shift is the invitation
+        // Right shift is both the invitation and the way back out.
+        if (partySize > 1) leavePlayerTwo(); else joinPlayerTwo();
         e.preventDefault();
         return;
       }
@@ -3259,6 +3391,7 @@
       startTongue: startTongue, requestHop: requestHop, snapDir: snapDir,
       startHopFor: startHop, cellOccupied: cellOccupied,
       join: function () { partySize = 2; },
+      leave: function () { partySize = 1; versus = false; },
       setVersus: function (v) { versus = !!v; },
       isPlayer: isPlayer,
       unproj: unproj, proj: proj, wrapCoord: wrapCoord, wrapDelta: wrapDelta,

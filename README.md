@@ -39,9 +39,11 @@ uses, so what you see is what you get. An empty seat is dashed and greyed out
 with its invitation on it.
 
 Press **Right Shift** there and a second knight joins, in rose to player one's
-blue. It only listens on that screen — joining mid-fight would drop someone
-into a round already under way. Each has their own score, their own stable of lives, and their own
-half of the keyboard. Then pick a mode:
+blue; press it again to stand them down. It only listens on that screen —
+joining mid-fight would drop someone into a round already under way.
+
+Each knight has their own score, their own stable of lives, and their own half
+of the keyboard. Then pick a mode:
 
 | | |
 | --- | --- |
@@ -244,9 +246,18 @@ steering comes from: your finger, or the direction of you.
 ## Rival knights
 
 Deliberately simple: close the larger gap, and once you are in reach take a
-swing. They will ride a log if one is there but will not jump into open water;
-roads they will chance, and the carts do get them. They drown and they get run
-over on exactly the same terms you do.
+swing. They drown and they get run over on exactly the same terms you do — but
+they do watch where they are going:
+
+- They will not step onto a road square with a cart bearing down on it, looking
+  `enemyLookahead` seconds ahead, and if one is coming at the square they are
+  already standing on they bolt without waiting for their usual hop timer.
+- Blocked by water, they **wait on the bank** for a log rather than pacing along
+  it. Pacing is what stopped them ever crossing: they would step sideways, and
+  the log would pass the square they had just left. If a log is due at the
+  square within `enemyLogWait` they hold still and board it when it arrives.
+- They will not board a log that is about to go under at the far edge, and they
+  step off one they are riding before it gets there.
 
 You get `graceTime` seconds of immunity after respawning — the toad pulses
 while it lasts — because three rivals standing over the spawn will otherwise

@@ -1113,8 +1113,10 @@ function freshLevel(i = 0) {
   const foe = loneRival(0, roadRow);
   foe.hopTimer = 1e6; foe.restTimer = 1e6;
   s.player.x = -R(); s.player.y = R(); s.player.dying = null; s.player.safeT = 1e6;
-  s.hazards.push({ kind: "car", x: -3, y: roadRow, len: 1.6, vx: 6, sinking: 0, tint: 0 });
-  step(0.6);
+  // Right on top of it. Rivals now watch the road and jump clear of anything
+  // they can see coming, so this has to be an ambush to land at all.
+  s.hazards.push({ kind: "car", x: 0, y: roadRow, len: 1.6, vx: 6, sinking: 0, tint: 0 });
+  step(0.05);
   check(FJ.state().enemies[0].dead, "the rival is run down, as set up");
   check(FJ.state().helmets.length === 1, "and drops a helm for you to go and fetch");
 }
@@ -1315,6 +1317,101 @@ function duel(versusMode) {
   step(1 / 60);
   check(FJ.state().players[0].score === before + FJ.CFG.pointsHelmet,
     "seat one is paid for fetching seat two's helm");
+}
+
+// --- 24. rivals watch the traffic ----------------------------------------
+{
+  FJ.loadLevel(ROAD);
+  clearHazards();
+  const s = FJ.state();
+  const roads = [];
+  s.lanes.forEach((l, i) => { if (l.type === "road") roads.push(i - R()); });
+  const foe = loneRival(0, roads[0] - 1);       // on the grass beside the road
+  foe.restTimer = 1e6;
+  foe.hopTimer = 0;
+  s.players[0].x = 0; s.players[0].y = roads[1] + 1;   // straight across from it
+  s.players[0].dying = null; s.players[0].safeT = 1e6;
+
+  // A cart about to pass the square it would step onto.
+  s.hazards.push({ kind: "car", x: -2.2, y: roads[0], len: 1.6, vx: 6, sinking: 0, tint: 0 });
+  step(0.1);
+  check(FJ.state().enemies[0].y === roads[0] - 1,
+    "a rival will not step in front of a cart it can see coming");
+
+  // Once it has gone by, the way is clear and it crosses.
+  step(1.4);
+  check(FJ.state().enemies[0].y > roads[0] - 1,
+    "and goes once the road is clear");
+}
+
+{
+  // Standing on a road with something bearing down, it bolts without waiting
+  // for its usual hop timer.
+  FJ.loadLevel(ROAD);
+  clearHazards();
+  const s = FJ.state();
+  const roads = [];
+  s.lanes.forEach((l, i) => { if (l.type === "road") roads.push(i - R()); });
+  const foe = loneRival(0, roads[0]);
+  foe.restTimer = 1e6;
+  foe.hopTimer = 1e6;                            // deliberately not due a move
+  s.players[0].x = 0; s.players[0].y = -R(); s.players[0].dying = null;
+  s.players[0].safeT = 1e6;
+  s.hazards.push({ kind: "car", x: -3.2, y: roads[0], len: 1.6, vx: 6, sinking: 0, tint: 0 });
+
+  step(0.5);
+  const after = FJ.state().enemies[0];
+  check(!after.dead, "a rival caught on the road gets out of the way");
+  check(after.y !== roads[0] || Math.abs(after.x) > 0.5,
+    "leaving the square the cart was heading for");
+}
+
+// --- 25. rivals use the logs ---------------------------------------------
+{
+  FJ.loadLevel(MILLRACE);
+  clearHazards();
+  const s = FJ.state();
+  const waterRow = s.lanes.findIndex(l => l.type === "water") - R();
+  const foe = loneRival(0, waterRow - 1);        // north bank
+  foe.restTimer = 1e6;
+  s.players[0].x = 0; s.players[0].y = waterRow + 2;   // the far side
+  s.players[0].dying = null; s.players[0].safeT = 1e6;
+
+  // No log yet: it must not walk into the water, however much it wants to.
+  step(1.2);
+  check(FJ.state().enemies[0].y === waterRow - 1 && !FJ.state().enemies[0].dead,
+    "with no log in sight a rival stays on the bank");
+
+  // Send one along under it.
+  s.hazards.push({ kind: "log", x: -4, y: waterRow, len: 3, vx: 1.5, sinking: 0, tint: 0 });
+  let boarded = false;
+  for (let i = 0; i < 60 * 8 && !boarded; i++) {
+    step(1 / 60);
+    const e = FJ.state().enemies[0];
+    if (Math.round(e.y) === waterRow && !e.dead) boarded = true;
+  }
+  check(boarded, "and boards one when it comes past");
+  check(!FJ.state().enemies[0].dead, "without drowning in the attempt");
+}
+
+{
+  // A rival aboard a log that is about to go under gets off it.
+  FJ.loadLevel(MILLRACE);
+  clearHazards();
+  const s = FJ.state();
+  const waterRow = s.lanes.findIndex(l => l.type === "water") - R();
+  const foe = loneRival(R() - 2, waterRow);
+  foe.restTimer = 1e6;
+  foe.hopTimer = 1e6;                            // again, not due a move
+  s.players[0].x = 0; s.players[0].y = -R(); s.players[0].dying = null;
+  s.players[0].safeT = 1e6;
+  s.hazards.push({ kind: "log", x: R() - 2, y: waterRow, len: 3, vx: 1.5, sinking: 0, tint: 0 });
+
+  step(1.6);
+  const e = FJ.state().enemies[0];
+  check(!e.dead, "a rival rides a log without drowning");
+  check(Math.round(e.y) !== waterRow,
+    "and steps off before it reaches the end of the level");
 }
 
 // --- 13. every level loads and is survivable to stand on ----------------
