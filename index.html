@@ -614,6 +614,9 @@
     respawnDelay: 3.0,    // sec before an unhorsed rival is replaced
     enemyLookahead: 0.6,  // sec of oncoming traffic a rival anticipates
     enemyLogWait: 3.0,    // sec a rival will wait on the bank for a log
+    enemyFriendlyFire: 0, // 1 = a rival's tongue also unhorses other rivals.
+                          // Off: they only ever go through each other, so the
+                          // field thins out because of you and nobody else.
     graceTime: 1.8,       // sec you cannot be tongued after coming back
 
     // --- input
@@ -635,7 +638,8 @@
     { key: "lives",        label: "Lives",         min: 1,    max: 9,   step: 1,    unit: "" },
     { key: "enemyCount",   label: "Rivals",        min: 0,    max: 6,   step: 1,    unit: "" },
     { key: "enemyHopEvery",label: "Rival pace",    min: 0.25, max: 2,   step: 0.05, unit: " s" },
-    { key: "enemyRange",   label: "Rival nerve",   min: 1,    max: 4,   step: 0.1,  unit: " cells" }
+    { key: "enemyRange",   label: "Rival nerve",   min: 1,    max: 4,   step: 0.1,  unit: " cells" },
+    { key: "enemyFriendlyFire", label: "Rival crossfire", type: "toggle" }
   ];
 
   var CFG = {};
@@ -889,6 +893,9 @@
   // in place both have to stop reaching around the outside of the board.
 
   function wrapping() { return CFG.wrapEdges >= 0.5; }
+
+  // Whether a rival's tongue counts against another rival.
+  function crossfire() { return CFG.enemyFriendlyFire >= 0.5; }
 
   function wrapCoord(v) {
     var s = CFG.arena, R = bound();
@@ -1379,6 +1386,9 @@
       // In co-op the two of you cannot touch each other; in versus that is
       // the entire point.
       if (!versus && isPlayer(m) && isPlayer(target)) continue;
+      // Rivals are on the same side. Left on, three of them swinging at you in
+      // a crowd unhorse each other by accident and the field clears itself.
+      if (!crossfire() && !isPlayer(m) && !isPlayer(target)) continue;
       for (var i = 5; i < t.nodes.length; i++) {
         if (wrapDist(t.nodes[i], target) < CFG.hitRadius) {
           var dir = hitDirection(m, target, dt);
@@ -1437,6 +1447,11 @@
         // miss the case where the pair happens to be stored the other way
         // round. At least one of them must still be on its way out.
         if (ta.state !== "extend" && tb.state !== "extend") continue;
+        // Rivals that cannot hit each other do not parry each other either.
+        // Otherwise three of them closing on you spend the fight knocking
+        // their own tongues down and never land a blow — the toggle would
+        // only be half off.
+        if (!crossfire() && !isPlayer(mounts[a]) && !isPlayer(mounts[b])) continue;
 
         // Cheap reject first: nothing can touch if the two mounts are further
         // apart than both tongues plus the mouth offsets they leave from.

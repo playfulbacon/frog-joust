@@ -265,6 +265,19 @@ they do watch where they are going:
 - They will not board a log that is about to go under at the far edge, and they
   step off one they are riding before it gets there.
 
+**Rivals are on the same side as each other**, and `enemyFriendlyFire`
+(*Rival crossfire* in the tuner) is **off by default**: a rival's tongue passes
+straight through another rival. They only ever aim at a player, so every
+rival-on-rival hit was crossfire — and with three of them swinging in a crowd
+the field used to clear itself while you watched. Switching it on makes a
+melee, where standing between two of them is a tactic.
+
+The same flag governs their **tongue clashes**, not just their hits. If two
+rivals cannot unhorse each other, their tongues do not parry either — otherwise
+three knights converging on you would spend the fight knocking each other's
+tongues down and never land a blow, and the toggle would only be half off. It
+never applies to a player: your tongue clashes with everything.
+
 You get `graceTime` seconds of immunity after respawning — the toad pulses
 while it lasts — because three rivals standing over the spawn will otherwise
 simply farm you.
@@ -313,6 +326,8 @@ hard off all eight edges and corners all stay on the board and none goes
 missing, that a rival crosses the field to steal a helm, that lives run down
 and end the round and that a finished round stops simulating, that movement
 frees up the instant you release,
-that a rival closes and eventually unhorses you, that a knight unhorsed with
+that a rival closes and eventually unhorses you, that a rival's tongue sweeping
+over another rival leaves it mounted with crossfire off and unhorses it with
+crossfire on, that a knight unhorsed with
 his tongue still out takes it with him rather than leaving it lying on the
 field, and that every level loads and starts you somewhere dry.

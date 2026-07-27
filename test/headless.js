@@ -1467,6 +1467,57 @@ function duel(versusMode) {
   step(1.2);
 }
 
+// --- 27. rivals only unhorse each other when crossfire is switched on -----
+// One rival shoots down its own row with a second rival stood in the way and
+// the player beyond them both, so the shooter's own steering sweeps its tongue
+// straight across its neighbour. The tongue definitely arrives; whether the
+// neighbour goes down is the whole question.
+function crossfireTrial(on) {
+  FJ.loadLevel(PLAIN);
+  clearHazards();
+  FJ.CFG.enemyFriendlyFire = on ? 1 : 0;
+  const s = FJ.state();
+  benchRivals();
+  const a = s.enemies[0], b = s.enemies[1];
+  for (const e of [a, b]) {
+    e.dead = false; e.rider = true; e.state = "idle"; e.dying = null;
+    e.hopTimer = 1e6; e.restTimer = 1e6; e.attacking = false;
+  }
+  const row = -R() + 2;
+  a.x = 0; a.y = row;
+  b.x = 1; b.y = row;
+  s.players[0].x = 5; s.players[0].y = row;
+  s.players[0].dying = null; s.players[0].safeT = 1e6;
+
+  a.face = { x: 1, y: 0 };
+  a.attacking = true; a.holdTimer = 5;
+  FJ.startTongue(a);
+
+  let closest = Infinity;
+  for (let i = 0; i < 240; i++) {
+    step(DT);
+    if (!b.dead) {
+      for (let n = 5; n < a.tongue.nodes.length; n++) {
+        const q = a.tongue.nodes[n];
+        closest = Math.min(closest, Math.hypot(q.x - b.x, q.y - b.y));
+      }
+    }
+    if (b.dead) break;
+  }
+  return { hit: b.dead, closest };
+}
+{
+  const off = crossfireTrial(false);
+  check(off.closest < FJ.CFG.hitRadius,
+    `a rival's tongue does sweep over its neighbour (within ${off.closest.toFixed(2)} cells)`);
+  check(!off.hit, "but with crossfire off it cannot unhorse another rival");
+
+  const on = crossfireTrial(true);
+  check(on.hit, "and with crossfire switched on it can");
+
+  FJ.CFG.enemyFriendlyFire = 0;   // back to the default for anything after
+}
+
 // --- 13. every level loads and is survivable to stand on ----------------
 {
   for (let i = 0; i < FJ.LEVELS.length; i++) {
