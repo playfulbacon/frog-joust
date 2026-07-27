@@ -1047,11 +1047,12 @@ function freshLevel(i = 0) {
 {
   // And the invariant has to survive real play: rivals hunting, dying and
   // respawning for a while, with the player standing in the middle of it.
-  FJ.loadLevel(PLAIN);
-  const s = FJ.state();
-  s.player.x = 0; s.player.y = 0;
+  // Set the crowd BEFORE loading, so the level actually spawns five rivals and
+  // places everyone legally. Teleporting the player in afterwards would create
+  // the very overlap this is looking for.
   FJ.CFG.enemyCount = 5;
-  while (s.enemies.length < 5) s.enemies.push(null);
+  FJ.loadLevel(PLAIN);
+  check(FJ.state().enemies.filter(Boolean).length === 5, "five rivals take the field");
 
   let clash = null;
   for (let i = 0; i < 60 * 45 && !clash; i++) {
@@ -1239,6 +1240,81 @@ function duel(versusMode) {
   check(!FJ.state().players[1].out, "leaving the other still mounted, as the winner");
 
   FJ.setVersus(false);
+}
+
+// --- 23. your own helm is gear, not treasure -----------------------------
+{
+  FJ.loadLevel(ROAD);
+  clearHazards();
+  benchRivals();
+  const roadRow = FJ.state().lanes.findIndex(l => l.type === "road") - R();
+  const s = FJ.state();
+  s.helmets.length = 0;
+  s.players[0].x = 0; s.players[0].y = roadRow;
+  s.players[0].state = "idle"; s.players[0].dying = null;
+  s.hazards.push({ kind: "car", x: -3, y: roadRow, len: 1.6, vx: 6, sinking: 0, tint: 0 });
+  step(0.6);
+  check(FJ.state().helmets.length === 1, "dying drops your helm, as before");
+  check(FJ.state().helmets[0].owner === 0, "and it remembers whose head it came off");
+
+  // Wait out the respawn, then go and stand on it.
+  step(2.2);
+  const helm = FJ.state().helmets[0];
+  check(helm !== undefined, "the helm is still lying there after you come back");
+  if (helm) {
+    // Seed a score first: 0 before and 0 after would also pass if pickups were
+    // broken outright, which is not what this is testing.
+    FJ.state().players[0].score = 500;
+    const before = FJ.state().players[0].score;
+    FJ.state().players[0].x = helm.x;
+    FJ.state().players[0].y = helm.y;
+    FJ.state().players[0].dying = null;
+    step(1 / 60);
+    check(FJ.state().helmets.length === 0, "you pick your own helm back up");
+    check(FJ.state().players[0].score === before,
+      `but score nothing for it (${FJ.state().players[0].score} vs ${before})`);
+  }
+}
+
+{
+  // A rival's helm still pays, so the rule is about ownership and not about
+  // helms in general.
+  FJ.loadLevel(PLAIN);
+  clearHazards();
+  const s = FJ.state();
+  benchRivals();
+  s.helmets.length = 0;
+  s.players[0].dying = null;
+  s.helmets.push({
+    x: s.players[0].x, y: s.players[0].y, z: 0, vx: 0, vy: 0, vz: 0,
+    rot: 0, spin: 0, armor: "#b0353a", trim: "#e5cfa0",
+    life: 0, landed: true, owner: null
+  });
+  const before = FJ.state().players[0].score;
+  step(1 / 60);
+  check(FJ.state().players[0].score === before + FJ.CFG.pointsHelmet,
+    `a rival's helm still pays ${FJ.CFG.pointsHelmet}`);
+}
+
+{
+  // And in two-player, your partner's helm is not your helm.
+  FJ.join();
+  FJ.loadLevel(PLAIN);
+  clearHazards();
+  benchRivals();
+  const s = FJ.state();
+  s.helmets.length = 0;
+  s.players[0].dying = null;
+  s.players[1].dying = null;
+  s.helmets.push({
+    x: s.players[0].x, y: s.players[0].y, z: 0, vx: 0, vy: 0, vz: 0,
+    rot: 0, spin: 0, armor: "#d94f9a", trim: "#f0dca8",
+    life: 0, landed: true, owner: 1                     // seat two's helm
+  });
+  const before = FJ.state().players[0].score;
+  step(1 / 60);
+  check(FJ.state().players[0].score === before + FJ.CFG.pointsHelmet,
+    "seat one is paid for fetching seat two's helm");
 }
 
 // --- 13. every level loads and is survivable to stand on ----------------
