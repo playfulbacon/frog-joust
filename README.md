@@ -37,6 +37,7 @@ device before a gesture.
 
 | | |
 | --- | --- |
+| **The Tiltyard** | Bare ground. Just the knights and room to work. |
 | **Millrace** | One stream through the middle. |
 | **Twin Races** | Two streams running opposite ways, dry ground between. |
 | **The King's Road** | A two-lane road, carts in both directions. |
@@ -64,13 +65,20 @@ carry their own traffic. Adding one is a few lines in `LEVELS`.
 - Water drowns you and carts flatten you. A log carries you while you stand on
   it, and **a log that reaches the end of the level goes under**, taking you
   with it unless something else is beneath you by then.
-- Rival knights carry exactly the same tongue you do, and will use it.
+- Rival knights carry exactly the same tongue you do, and will use it. Their
+  toads are a darker green than yours, so which one is you never needs thinking
+  about.
+- **Two tongues that meet in mid-air both turn back.** Neither knight gets the
+  hit, which turns a head-on charge into a parry rather than a race to see who
+  registered first.
 - A struck knight is thrown **the way the blow was going**, with some scatter,
   so a sweep sends them sideways rather than back along the tongue.
 - Their **helm comes off** and stays on the field. Ride over it to claim it.
   Helms obey the same world rules as everyone else: they ride logs, and they
   sink in open water, so a knight unhorsed over the stream may cost you the
   spoils. They lie there for `helmetLife` seconds, blinking out at the end.
+  **Rivals want them too** and will cross the field to beat you to one, which
+  is what stops a dropped helm being free money you can collect at leisure.
 
 ## Scoring
 
@@ -81,7 +89,12 @@ carry their own traffic. Adding one is a few lines in `LEVELS`.
 
 The helm is worth more than the kill on purpose: the kill is the thing you were
 already doing, and the helm is the thing that makes you leave safe ground to go
-and get it.
+and get it — with a rival racing you for it.
+
+You have `lives` knights in the stable (3 by default). Drowning, being run
+down, or being unhorsed spends one; when they are gone the round ends and you
+can ride again or pick different ground. Score and lives sit together at the
+top centre of the screen, lives as a row of little helms.
 
 ## How the tongue works
 
@@ -219,7 +232,9 @@ facings never breaches `tongueBehind` while still leaving a full sideways sweep
 available, that the tongue turns for home by itself at full stretch and is
 still steerable afterwards, that a struck knight is always thrown away from the
 blow and never back into it, that a helm drops and can be collected for points
-and sinks if it lands in open water, that movement frees up the instant you
-release,
+and sinks if it lands in open water, that two tongues meeting head-on both turn
+back with neither knight unhorsed, that a rival crosses the field to steal a
+helm, that lives run down and end the round and that a finished round stops
+simulating, that movement frees up the instant you release,
 that a rival closes and eventually unhorses you, and that every level loads and
 starts you somewhere dry.

@@ -119,35 +119,54 @@
     pointer-events: auto;
   }
 
-  .tallyline {
-    font-size: 10px;
-    letter-spacing: 0.1em;
-    color: var(--muted);
-    font-variant-numeric: tabular-nums;
-    margin-top: -2px;
+  /* The scoreboard is centred, and sits below the title row on narrow screens
+     where the title and buttons already fill the width. */
+  .scoreboard {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    top: calc(env(safe-area-inset-top, 0px) + 74px);
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    text-align: center;
   }
-  .tallyline b { color: var(--parchment); font-weight: 600; }
+  @media (min-width: 780px) {
+    .scoreboard { top: calc(env(safe-area-inset-top, 0px) + 12px); }
+  }
 
-  .stat b {
+  .scoreboard > b {
     font-family: var(--font-display);
-    font-size: 30px;
+    font-size: 38px;
     font-weight: 600;
     line-height: 1;
     color: var(--gold);
     font-variant-numeric: tabular-nums;
-    text-shadow: 0 1px 0 rgba(0, 0, 0, 0.7);
-    display: block;
-    text-align: right;
+    text-shadow: 0 2px 6px rgba(0, 0, 0, 0.85);
   }
-  .stat.lost b { color: #c9707a; }
-  .stat span {
+
+  .scoreboard .meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
     font-size: 10px;
     letter-spacing: 0.14em;
     color: var(--muted);
-    display: block;
-    text-align: right;
-    margin-top: 3px;
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
   }
+  .scoreboard .kos b { color: var(--parchment); font-weight: 600; }
+
+  .lives { display: inline-flex; gap: 4px; align-items: flex-end; }
+  /* Each life is a little helm: a dome with a flat brim. */
+  .lives i {
+    width: 10px; height: 8px;
+    border-radius: 5px 5px 1px 1px;
+    background: var(--gold);
+    box-shadow: 0 1px 0 rgba(0, 0, 0, 0.6);
+  }
+  .lives i.spent { background: rgba(233, 239, 228, 0.16); box-shadow: none; }
 
   .btn-row { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 
@@ -221,6 +240,30 @@
     letter-spacing: 0.08em;
     color: var(--muted);
   }
+
+  .menu.over { gap: 22px; }
+
+  .finalscore { text-align: center; }
+  .finalscore b {
+    display: block;
+    font-family: var(--font-display);
+    font-size: 62px;
+    font-weight: 600;
+    line-height: 1;
+    color: var(--gold);
+    font-variant-numeric: tabular-nums;
+  }
+  .finalscore span {
+    display: block;
+    margin-top: 6px;
+    font-size: 10px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .over-buttons { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+  .over-buttons button { padding: 11px 18px; font-size: 11px; }
 
   .levels {
     display: grid;
@@ -372,10 +415,6 @@
     </div>
 
     <div class="tally">
-      <div class="stat"><b id="fj-score">0</b><span>points</span></div>
-      <div class="tallyline">
-        <b id="fj-ko">0</b> unhorsed &nbsp;·&nbsp; <b id="fj-lost">0</b> lost
-      </div>
       <div class="btn-row">
         <button id="fj-menu" type="button">Levels</button>
         <button id="fj-sound" type="button" aria-pressed="true">Sound</button>
@@ -384,11 +423,31 @@
     </div>
   </div>
 
+  <div class="scoreboard">
+    <b id="fj-score">0</b>
+    <div class="meta">
+      <span class="lives" id="fj-lives" aria-label="knights remaining"></span>
+      <span class="kos"><b id="fj-ko">0</b> unhorsed</span>
+    </div>
+  </div>
+
   <p class="hint" id="fj-hint">
-    <b>Swipe</b> to hop &nbsp;·&nbsp; up is forward &nbsp;·&nbsp; <span id="fj-edges">edges are walls</span><br>
-    <b>Press and hold</b> to shoot the tongue, drag to steer<br>
-    ride the logs across &nbsp;·&nbsp; water and wheels are fatal
+    <b>Swipe</b> to hop &nbsp;—&nbsp; up is forward<br>
+    <b>Press and hold</b> to shoot, drag to steer<br>
+    take their helms &nbsp;·&nbsp; <span id="fj-edges">edges are walls</span>
   </p>
+
+  <div class="menu over" id="fj-gameover" hidden>
+    <div class="menu-head">
+      <h2>Unhorsed for good</h2>
+      <p>Every knight in the stable has hit the dirt.</p>
+    </div>
+    <div class="finalscore"><b id="fj-final">0</b><span>points</span></div>
+    <div class="over-buttons">
+      <button id="fj-again" type="button">Ride again</button>
+      <button id="fj-pick" type="button">Choose ground</button>
+    </div>
+  </div>
 
   <div class="menu" id="fj-levelmenu">
     <div class="menu-head">
@@ -454,6 +513,7 @@
     curveBow: 0.45,
     minExtend: 0.14,
     hitRadius: 0.5,       // cells — tongue vs rider
+    clashRadius: 0.34,    // cells — tongue vs tongue
 
     // --- scoring and spoils
     pointsUnhorse: 100,   // for putting a knight in the dirt
@@ -462,6 +522,8 @@
     knockSpread: 0.45,    // radians of scatter on the fall direction
     helmetLife: 14,       // sec a dropped helm lies there before it is lost
     helmetPickup: 0.62,   // cells you must be within to claim one
+    helmetSeek: 4.5,      // cells a rival will cross the field to beat you to one
+    lives: 3,             // knights in the stable before it is over
 
     // --- rival knights
     enemyCount: 3,
@@ -488,6 +550,7 @@
     { key: "steerRate",    label: "Steer rate",    min: 0,    max: 16,  step: 0.25, unit: " rad/s" },
     { key: "tongueBehind", label: "Reach behind",  min: 0,    max: 3,   step: 0.25, unit: " cells" },
     { key: "curveBow",     label: "Curve bow",     min: 0.05, max: 0.9, step: 0.05, unit: "" },
+    { key: "lives",        label: "Lives",         min: 1,    max: 9,   step: 1,    unit: "" },
     { key: "enemyCount",   label: "Rivals",        min: 0,    max: 6,   step: 1,    unit: "" },
     { key: "enemyHopEvery",label: "Rival pace",    min: 0.25, max: 2,   step: 0.05, unit: " s" },
     { key: "enemyRange",   label: "Rival nerve",   min: 1,    max: 4,   step: 0.1,  unit: " cells" }
@@ -518,6 +581,15 @@
   }
 
   var LEVELS = [
+    {
+      name: "The Tiltyard",
+      blurb: "Bare ground and nothing else. Just you, the other knights, and room to work.",
+      lanes: function () {
+        var L = [];
+        for (var i = 0; i < 11; i++) L.push(grass());
+        return L;
+      }
+    },
     {
       name: "Millrace",
       blurb: "One stream through the middle. Ride a log across, and mind where it lets you off.",
@@ -654,6 +726,15 @@
     },
     horn: function () { blip("sawtooth", 320, 300, 0.26, 0.05); blip("sawtooth", 404, 380, 0.26, 0.04); },
     respawn: function () { blip("sine", 380, 760, 0.16, 0.1); blip("sine", 570, 1140, 0.2, 0.05, 0.07); },
+    clash: function () {                                   // wet slap, two tongues meeting
+      rush(1800, 700, 0.1, 0.12, 1.4);
+      blip("triangle", 520, 300, 0.12, 0.07);
+      blip("triangle", 700, 420, 0.1, 0.05, 0.02);
+    },
+    steal: function () {                                   // a rival got the helm
+      blip("square", 620, 400, 0.14, 0.05);
+      blip("square", 420, 260, 0.18, 0.04, 0.06);
+    },
     pickup: function () {                                  // coin-bright, two rising notes
       blip("square", 880, 880, 0.07, 0.06);
       blip("square", 1320, 1320, 0.16, 0.05, 0.06);
@@ -754,7 +835,8 @@
   // STATE
   // =====================================================================
 
-  var level, lanes, hazards, player, enemies, debris, helmets, ripples, ko, lost, score, running;
+  var level, levelIndex, lanes, hazards, player, enemies, debris, helmets,
+      ripples, pops, ko, lost, lives, score, running, over;
 
   var ARMOURS = [
     { armor: "#b0353a", trim: "#e5cfa0" },
@@ -779,11 +861,19 @@
     return t;
   }
 
+  // The player's toad is bright; every rival's is a darker, duller green, so
+  // "which one am I" is answered by the mount as well as the heraldry.
+  var HIDE_PLAYER = { top: "#6fb85f", bottom: "#31693f", head: "#579a58",
+                      limb: "#2a5636", foot: "#357a44", rim: "rgba(9,26,18,0.55)" };
+  var HIDE_RIVAL  = { top: "#3f7d47", bottom: "#1d442a", head: "#356f3c",
+                      limb: "#17331f", foot: "#20512c", rim: "rgba(4,14,9,0.7)" };
+
   function makeMount(x, y, skin) {
     return {
       x: x, y: y, z: 0,
       face: { x: 0, y: 1 },
       armor: skin.armor, trim: skin.trim,
+      hide: skin.hide || HIDE_RIVAL,
       rider: true,
       bob: Math.random() * Math.PI * 2,
       state: "idle",          // idle | hop
@@ -803,7 +893,8 @@
   }
 
   function loadLevel(index) {
-    level = LEVELS[clamp(index, 0, LEVELS.length - 1)];
+    levelIndex = clamp(index, 0, LEVELS.length - 1);
+    level = LEVELS[levelIndex];
     lanes = level.lanes();
     for (var i = 0; i < lanes.length; i++) {
       lanes[i].y = i - bound();
@@ -813,15 +904,18 @@
     debris = [];
     helmets = [];
     ripples = [];
+    pops = [];
     ko = 0;
     lost = 0;
+    lives = Math.max(1, Math.round(CFG.lives));
     score = 0;
+    over = false;
 
     // Let the traffic build up before anyone sees the level, or it opens on
     // an empty stream and you stand about waiting for the first log.
     for (var p = 0; p < 900; p++) updateHazards(1 / 60);
 
-    player = makeMount(0, spawnRow(), { armor: "#2f5fd0", trim: "#e4b429" });
+    player = makeMount(0, spawnRow(), { armor: "#2f5fd0", trim: "#e4b429", hide: HIDE_PLAYER });
     player.bob = 0;
     player.face = { x: 0, y: -1 };
     player.safeT = CFG.graceTime;
@@ -1156,12 +1250,49 @@
     return { x: Math.cos(a), y: Math.sin(a) };
   }
 
+  // Two tongues meeting in mid-air both lose. Neither knight gets the hit and
+  // both have to reel in and try again, which turns a head-on charge into a
+  // parry rather than a coin flip over who registered first.
+  function checkTongueClashes() {
+    var mounts = allMounts();
+    for (var a = 0; a < mounts.length; a++) {
+      var ta = mounts[a].tongue;
+      if (ta.state === "idle") continue;
+      for (var b = a + 1; b < mounts.length; b++) {
+        var tb = mounts[b].tongue;
+        if (tb.state === "idle") continue;
+        // Each pair is visited once, so testing only `a` for extending would
+        // miss the case where the pair happens to be stored the other way
+        // round. At least one of them must still be on its way out.
+        if (ta.state !== "extend" && tb.state !== "extend") continue;
+
+        // Cheap reject first: nothing can touch if the two mounts are further
+        // apart than both tongues plus the mouth offsets they leave from.
+        var reach = ta.len + tb.len + 0.85 + CFG.clashRadius;
+        if (wrapDist(mounts[a], mounts[b]) > reach) continue;
+
+        var hit = false;
+        for (var i = 4; i < ta.nodes.length && !hit; i += 2) {
+          for (var j = 4; j < tb.nodes.length; j += 2) {
+            if (wrapDist(ta.nodes[i], tb.nodes[j]) < CFG.clashRadius) { hit = true; break; }
+          }
+        }
+        if (!hit) continue;
+
+        if (ta.state === "extend") ta.state = "retract";
+        if (tb.state === "extend") tb.state = "retract";
+        sfx.clash();
+      }
+    }
+  }
+
   function unhorse(mount, dir) {
     mount.rider = false;
     mount.dead = true;
     mount.respawnIn = CFG.respawnDelay;
     ko++;
     addScore(CFG.pointsUnhorse);
+    pops.push({ x: mount.x, y: mount.y, t: 0, text: "+" + CFG.pointsUnhorse, mine: true });
     throwRider(mount, dir, 250);
     dropHelmet(mount, dir);
     sfx.hit();
@@ -1323,7 +1454,10 @@
     if (player.safeT > 0) player.safeT -= dt;
     if (player.dying) {
       player.dyingT -= dt;
-      if (player.dyingT <= 0) respawnPlayer();
+      if (player.dyingT <= 0) {
+        if (lives > 0) respawnPlayer();
+        else endRound();
+      }
       return;
     }
 
@@ -1370,6 +1504,7 @@
     player.dyingT = 1.15;
     player.rider = false;
     lost++;
+    lives--;
     cancelTongue(player);
     input.hopQueue = null;
     input.consumed = true;
@@ -1476,7 +1611,12 @@
     m.hopTimer -= dt;
     if (m.hopTimer > 0) return;
     m.hopTimer = CFG.enemyHopEvery * (0.75 + Math.random() * 0.5);
-    if (!hunting || dist < 1.05) return;
+
+    // A helm on the ground outranks the player: it is worth points to whoever
+    // gets there, and a rival that ignores it is free money.
+    var prize = nearestHelmet(m);
+    if (prize) { dx = prize.dx; dy = prize.dy; }
+    else if (!hunting || dist < 1.05) return;
 
     // Close the bigger gap first; if that square would drown it, try the other.
     var first = Math.abs(dx) >= Math.abs(dy)
@@ -1488,6 +1628,21 @@
 
     if (canStandAt(m, first)) startHop(m, first);
     else if ((Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) && canStandAt(m, second)) startHop(m, second);
+  }
+
+  // The closest helm worth crossing the field for, as an offset from the mount.
+  function nearestHelmet(m) {
+    var best = null, bestD = CFG.helmetSeek;
+    for (var i = 0; i < helmets.length; i++) {
+      var h = helmets[i];
+      if (!h.landed) continue;
+      var d = wrapDist(m, h);
+      if (d < bestD) {
+        bestD = d;
+        best = { dx: wrapDelta(h.x - m.x), dy: wrapDelta(h.y - m.y) };
+      }
+    }
+    return best;
   }
 
   // Would a hop in this direction put the rival somewhere it can survive?
@@ -1544,9 +1699,34 @@
 
       if (!player.dying && wrapDist(player, h) < CFG.helmetPickup) {
         addScore(CFG.pointsHelmet);
+        pops.push({ x: h.x, y: h.y, t: 0, text: "+" + CFG.pointsHelmet, mine: true });
         sfx.pickup();
         helmets.splice(i, 1);
+        continue;
       }
+
+      // Rivals want them too, and getting there first is the whole point of
+      // the race.
+      var taken = false;
+      for (var e = 0; e < enemies.length; e++) {
+        var m = enemies[e];
+        if (!m || m.dead || m.dying) continue;
+        if (wrapDist(m, h) < CFG.helmetPickup) {
+          pops.push({ x: h.x, y: h.y, t: 0, text: "lost", mine: false });
+          sfx.steal();
+          helmets.splice(i, 1);
+          taken = true;
+          break;
+        }
+      }
+      if (taken) continue;
+    }
+  }
+
+  function updatePops(dt) {
+    for (var i = pops.length - 1; i >= 0; i--) {
+      pops[i].t += dt;
+      if (pops[i].t > 0.95) pops.splice(i, 1);
     }
   }
 
@@ -1610,7 +1790,9 @@
     }
 
     updateEnemies(dt);
+    checkTongueClashes();
     updateHelmets(dt);
+    updatePops(dt);
     updateDebris(dt);
   }
 
@@ -1673,6 +1855,7 @@
 
     var mounts = allMounts();
     for (var t = 0; t < mounts.length; t++) drawTongue(mounts[t]);
+    drawPops();
 
     ctx.restore();
     drawVignette();
@@ -1686,10 +1869,10 @@
     var W = CFG.cell, H = CFG.cell * ISO;
     var left = (-R - 0.5) * W, top = (-R - 0.5) * H;
     var wide = CFG.arena * W, tall = CFG.arena * H;
-    var over = W * 2.4;
+    var bleed = W * 2.4;
 
     ctx.fillStyle = "#16292b";
-    ctx.fillRect(left - over, top - H * 1.2, wide + over * 2, tall + H * 2.4);
+    ctx.fillRect(left - bleed, top - H * 1.2, wide + bleed * 2, tall + H * 2.4);
 
     for (var gy = -R; gy <= R; gy++) {
       var lane = lanes[gy + R];
@@ -1700,9 +1883,9 @@
           ctx.fillRect((gx - 0.5) * W, ry, W + 0.5, H + 0.5);
         }
       } else if (lane.type === "water") {
-        drawWaterLane(lane, left - over, ry, wide + over * 2, H);
+        drawWaterLane(lane, left - bleed, ry, wide + bleed * 2, H);
       } else {
-        drawRoadLane(lane, gy, left - over, ry, wide + over * 2, H);
+        drawRoadLane(lane, gy, left - bleed, ry, wide + bleed * 2, H);
       }
     }
 
@@ -1756,6 +1939,42 @@
 
     ctx.fillStyle = colour;
     for (var sx = x; sx < x + w; sx += dash * 2) ctx.fillRect(sx, dy - 1.5, dash, 3);
+  }
+
+  // The claim: a ring snapping outward and the value floating off the field.
+  function drawPops() {
+    for (var i = 0; i < pops.length; i++) {
+      var q = pops[i];
+      var u = clamp(q.t / 0.95, 0, 1);
+      var p = proj(q.x, q.y, 26 + u * 34);
+      var fade = 1 - u * u;
+
+      ctx.save();
+      ctx.globalAlpha = fade;
+      if (u < 0.5) {
+        var ring = u / 0.5;
+        ctx.save();
+        ctx.translate(p.x, proj(q.x, q.y, 0).y);
+        ctx.scale(1, ISO);
+        ctx.strokeStyle = q.mine ? "rgba(228,180,41," + (0.8 * (1 - ring)) + ")"
+                                 : "rgba(200,140,150," + (0.6 * (1 - ring)) + ")";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(0, 0, 6 + ring * 26, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      ctx.font = "600 15px ui-monospace, SFMono-Regular, Menlo, monospace";
+      ctx.textAlign = "center";
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = "rgba(4,12,12,0.85)";
+      ctx.strokeText(q.text, p.x, p.y);
+      ctx.fillStyle = q.mine ? "#f3d271" : "#c9707a";
+      ctx.fillText(q.text, p.x, p.y);
+      ctx.restore();
+    }
+    ctx.globalAlpha = 1;
   }
 
   function drawRipples() {
@@ -1915,17 +2134,19 @@
     ctx.save();
     ctx.translate(p.x, p.y);
 
+    var hide = m.hide || HIDE_PLAYER;
+
     // haunches, wide enough to read past the body
-    ctx.fillStyle = "#2a5636";
+    ctx.fillStyle = hide.limb;
     ellipse(-20, -8, 9, 7);
     ellipse(20, -8, 9, 7);
 
     // body
     var g = ctx.createLinearGradient(0, -28, 0, -2);
-    g.addColorStop(0, "#6fb85f");
-    g.addColorStop(1, "#31693f");
+    g.addColorStop(0, hide.top);
+    g.addColorStop(1, hide.bottom);
     ctx.fillStyle = g;
-    ctx.strokeStyle = "rgba(9,26,18,0.55)";
+    ctx.strokeStyle = hide.rim;
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.ellipse(0, -14, 21, 15, 0, 0, Math.PI * 2);
@@ -1935,13 +2156,13 @@
     ctx.fillStyle = "rgba(190,232,170,0.18)";
     ellipse(-3, -19, 12, 7);
 
-    ctx.fillStyle = "#357a44";
+    ctx.fillStyle = hide.foot;
     ellipse(-13, -1, 7, 4);
     ellipse(13, -1, 7, 4);
 
     function drawHead() {
-      ctx.fillStyle = "#579a58";
-      ctx.strokeStyle = "rgba(9,26,18,0.55)";
+      ctx.fillStyle = hide.head;
+      ctx.strokeStyle = hide.rim;
       ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.ellipse(f.x * 11, -25 + f.y * 5, 15, 11, 0, 0, Math.PI * 2);
@@ -1963,8 +2184,8 @@
       for (var e = 0; e < eyes.length; e++) {
         var r = e === 0 ? 4.4 : 5.4;
         if (away) {
-          ctx.fillStyle = "#4e8f50";
-          ctx.strokeStyle = "rgba(9,26,18,0.5)";
+          ctx.fillStyle = hide.head;
+          ctx.strokeStyle = hide.rim;
           ctx.lineWidth = 1.6;
           ctx.beginPath();
           ctx.ellipse(eyes[e].x, eyes[e].y, r, r * 0.9, 0, 0, Math.PI * 2);
@@ -2017,13 +2238,6 @@
     ctx.moveTo(-9, 3);
     ctx.quadraticCurveTo(-7, -12, 0, -13);
     ctx.quadraticCurveTo(7, -12, 9, 3);
-    ctx.closePath();
-    ctx.fill();
-
-    ctx.fillStyle = trim;
-    ctx.beginPath();
-    ctx.moveTo(-8.4, -2); ctx.lineTo(8.4, -5);
-    ctx.lineTo(8.4, -2.4); ctx.lineTo(-8.4, 0.6);
     ctx.closePath();
     ctx.fill();
 
@@ -2155,12 +2369,28 @@
   // HUD + MENU
   // =====================================================================
 
-  var elState, elLamp, elKO, elLost, elScore, elHint, elLevelName, elMenu, hintTimer = null;
+  var elState, elLamp, elKO, elLost, elScore, elLives, elFinal, elOver,
+      elHint, elLevelName, elMenu, hintTimer = null;
 
   function setScore() {
     if (elScore) elScore.textContent = String(score);
     if (elKO) elKO.textContent = String(ko);
-    if (elLost) elLost.textContent = String(lost);
+    if (!elLives) return;
+    var total = Math.max(1, Math.round(CFG.lives));
+    if (elLives.childElementCount !== total) {
+      elLives.innerHTML = "";
+      for (var i = 0; i < total; i++) elLives.appendChild(document.createElement("i"));
+    }
+    for (var j = 0; j < total; j++) {
+      elLives.children[j].className = j < lives ? "" : "spent";
+    }
+  }
+
+  function endRound() {
+    over = true;
+    running = false;
+    if (elFinal) elFinal.textContent = String(score);
+    if (elOver) elOver.hidden = false;
   }
 
   function syncHud() {
@@ -2218,6 +2448,8 @@
         loadLevel(i);
         elLevelName.textContent = lv.name;
         elMenu.hidden = true;
+        elOver.hidden = true;
+        running = true;
         setScore();
       });
       host.appendChild(card);
@@ -2299,6 +2531,7 @@
         show();
         saveTuning();
         if (t.key === "enemyCount") syncEnemyCount();
+        if (t.key === "lives") { lives = Math.min(lives, Math.round(CFG.lives)); setScore(); }
       });
       t._sync = function () { input.value = CFG[t.key]; show(); };
       show();
@@ -2327,6 +2560,9 @@
     elLamp = document.getElementById("fj-lamp");
     elKO = document.getElementById("fj-ko");
     elScore = document.getElementById("fj-score");
+    elLives = document.getElementById("fj-lives");
+    elFinal = document.getElementById("fj-final");
+    elOver = document.getElementById("fj-gameover");
     elLost = document.getElementById("fj-lost");
     elHint = document.getElementById("fj-hint");
     elLevelName = document.getElementById("fj-levelname");
@@ -2404,6 +2640,18 @@
       drawer.classList.remove("open");
     });
 
+    document.getElementById("fj-again").addEventListener("click", function () {
+      audioStart();
+      loadLevel(levelIndex);
+      elOver.hidden = true;
+      running = true;
+      setScore();
+    });
+    document.getElementById("fj-pick").addEventListener("click", function () {
+      elOver.hidden = true;
+      elMenu.hidden = false;
+    });
+
     var soundBtn = document.getElementById("fj-sound");
     function syncSound() {
       soundBtn.textContent = audio.muted ? "Muted" : "Sound";
@@ -2450,7 +2698,8 @@
         return {
           player: player, enemies: enemies, hazards: hazards, lanes: lanes,
           debris: debris, helmets: helmets, level: level,
-          ko: ko, lost: lost, score: score
+          ko: ko, lost: lost, lives: lives, score: score, over: over,
+          pops: pops
         };
       },
       startTongue: startTongue, requestHop: requestHop, snapDir: snapDir,

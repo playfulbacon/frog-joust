@@ -54,6 +54,18 @@ function step(seconds) {
 }
 const R = () => Math.floor(FJ.CFG.arena / 2);
 
+// Levels by name, so inserting one at the front cannot silently repoint a test
+// at different ground.
+const levelNamed = (name) => {
+  const i = FJ.LEVELS.findIndex(l => l.name === name);
+  if (i < 0) { fail(`no level called "${name}"`); return 0; }
+  return i;
+};
+const PLAIN = levelNamed("The Tiltyard");
+const MILLRACE = levelNamed("Millrace");
+const ROAD = levelNamed("The King's Road");
+const TOLL = levelNamed("Toll Crossing");
+
 // Park the rivals where they cannot interfere with a test. Clearing `rider`
 // matters as much as `dead`: the game only ever sets the two together, and a
 // benched rival that still counts as mounted is still a target the tongue can
@@ -134,7 +146,7 @@ function freshLevel(i = 0) {
 
 // --- 3. hops cover whole cells and stay grid aligned --------------------
 {
-  freshLevel(0);
+  freshLevel(MILLRACE);
   clearHazards();
   const from = { x: FJ.state().player.x, y: FJ.state().player.y };
   FJ.requestHop({ x: 120, y: 0 });
@@ -159,7 +171,7 @@ function freshLevel(i = 0) {
 
 // --- 4a. walls (the default) --------------------------------------------
 {
-  freshLevel(0);
+  freshLevel(MILLRACE);
   clearHazards();
   FJ.CFG.wrapEdges = 0;
   const s = FJ.state();
@@ -194,7 +206,7 @@ function freshLevel(i = 0) {
 
 // --- 4b. wrapping, when switched on --------------------------------------
 {
-  freshLevel(0);
+  freshLevel(MILLRACE);
   clearHazards();
   FJ.CFG.wrapEdges = 1;
   const s = FJ.state();
@@ -235,7 +247,7 @@ function freshLevel(i = 0) {
 
 // --- 5. water kills, logs carry -----------------------------------------
 {
-  freshLevel(0);                       // Millrace: one water row
+  freshLevel(MILLRACE);                       // Millrace: one water row
   const waterRow = FJ.state().lanes.findIndex(l => l.type === "water") - R();
   check(Number.isInteger(waterRow) && waterRow >= -R(),
     `level 1 has a water lane (row ${waterRow})`);
@@ -255,7 +267,7 @@ function freshLevel(i = 0) {
 }
 
 {
-  freshLevel(0);
+  freshLevel(MILLRACE);
   clearHazards();
   const waterRow = FJ.state().lanes.findIndex(l => l.type === "water") - R();
   const s = FJ.state();
@@ -279,7 +291,7 @@ function freshLevel(i = 0) {
 
 // --- 6. a log that reaches the end takes you with it --------------------
 {
-  freshLevel(0);
+  freshLevel(MILLRACE);
   clearHazards();
   const waterRow = FJ.state().lanes.findIndex(l => l.type === "water") - R();
   const s = FJ.state();
@@ -297,7 +309,7 @@ function freshLevel(i = 0) {
 }
 
 {
-  freshLevel(0);
+  freshLevel(MILLRACE);
   clearHazards();
   const waterRow = FJ.state().lanes.findIndex(l => l.type === "water") - R();
   const s = FJ.state();
@@ -325,7 +337,7 @@ function freshLevel(i = 0) {
 
 // --- 7. carts ------------------------------------------------------------
 {
-  freshLevel(2);                       // The King's Road
+  freshLevel(ROAD);                    // The King's Road
   const roadRows = [];
   FJ.state().lanes.forEach((l, i) => { if (l.type === "road") roadRows.push(i - R()); });
   check(roadRows.length === 2, `the road level is two cells wide (rows ${roadRows.join(", ")})`);
@@ -344,7 +356,7 @@ function freshLevel(i = 0) {
 
 // --- 8. traffic spawns and clears ---------------------------------------
 {
-  freshLevel(3);                       // Toll Crossing: two streams + a road
+  freshLevel(TOLL);                    // Toll Crossing: two streams + a road
   const s = FJ.state();
   const kinds = new Set(s.hazards.map(h => h.kind));
   check(s.hazards.length > 0, `the level opens with traffic already running (${s.hazards.length})`);
@@ -363,7 +375,7 @@ function freshLevel(i = 0) {
 
 // --- 9. tongue: reach, curve, and hits ----------------------------------
 {
-  freshLevel(0);
+  freshLevel(MILLRACE);
   clearHazards();
   const s = FJ.state();
   s.player.x = 0; s.player.y = -R() + 1; s.player.face = { x: 0, y: 1 };
@@ -393,7 +405,7 @@ function freshLevel(i = 0) {
 
 {
   function shoot(sx, sy) {
-    freshLevel(0);
+    freshLevel(MILLRACE);
     clearHazards();
     const s = FJ.state();
     s.player.x = 0; s.player.y = 0; s.player.face = { x: 0, y: 1 };
@@ -436,7 +448,7 @@ function freshLevel(i = 0) {
   // Drive the steering all the way round the compass, holding each direction
   // long enough for the tip to settle there, and watch every sampled point of
   // the curve. Nothing may end up behind the frog's facing.
-  freshLevel(0);
+  freshLevel(MILLRACE);
   clearHazards();
   const s = FJ.state();
   s.lanes.forEach(l => { l.type = "grass"; });
@@ -491,7 +503,7 @@ function freshLevel(i = 0) {
   // collapses the leash before a half-turn completes. So drive the steering
   // hard enough to actually reach the line, and check the clamp holds it.
   function deepestBehind(rate, behind) {
-    freshLevel(0);
+    freshLevel(MILLRACE);
     clearHazards();
     const s = FJ.state();
     s.lanes.forEach(l => { l.type = "grass"; });
@@ -541,7 +553,7 @@ function freshLevel(i = 0) {
 
 // --- 9d. a tongue at full stretch comes back on its own -----------------
 {
-  freshLevel(0);
+  freshLevel(MILLRACE);
   clearHazards();
   const s = FJ.state();
   s.player.x = 0; s.player.y = -R() + 1; s.player.dying = null;
@@ -580,7 +592,7 @@ function freshLevel(i = 0) {
   // eastward-ish — the direction of the blow, plus scatter, never against it.
   let samples = [], spread = 0;
   for (let n = 0; n < 20; n++) {
-    FJ.loadLevel(0);
+    FJ.loadLevel(MILLRACE);
     clearHazards();
     const s = FJ.state();
     const foe = loneRival(2, -R() + 1);
@@ -613,7 +625,7 @@ function freshLevel(i = 0) {
 
 // --- 9f. helmets drop, and are worth collecting -------------------------
 {
-  FJ.loadLevel(0);
+  FJ.loadLevel(MILLRACE);
   clearHazards();
   const s = FJ.state();
   // Dry ground throughout: a helm thrown from here can otherwise reach the
@@ -654,7 +666,7 @@ function freshLevel(i = 0) {
 
 // --- 9g. a helm dropped in the stream is lost ---------------------------
 {
-  FJ.loadLevel(0);
+  FJ.loadLevel(MILLRACE);
   clearHazards();
   const waterRow = FJ.state().lanes.findIndex(l => l.type === "water") - R();
   const s = FJ.state();
@@ -670,7 +682,7 @@ function freshLevel(i = 0) {
 
 // --- 10. movement is locked while extending, freed on release -----------
 {
-  freshLevel(0);
+  freshLevel(MILLRACE);
   clearHazards();
   const s = FJ.state();
   s.player.x = 0; s.player.y = -R() + 1; s.player.dying = null;
@@ -701,7 +713,7 @@ function freshLevel(i = 0) {
 
 // --- 11. rivals hunt, and their tongues are lethal ----------------------
 {
-  FJ.loadLevel(0);
+  FJ.loadLevel(MILLRACE);
   clearHazards();
   const s = FJ.state();
   // One rival, parked a few cells from a stationary player.
@@ -724,7 +736,7 @@ function freshLevel(i = 0) {
 
 // --- 12. your tongue unhorses a rival ------------------------------------
 {
-  FJ.loadLevel(0);
+  FJ.loadLevel(MILLRACE);
   clearHazards();
   const s = FJ.state();
   const foe = loneRival(0, -R() + 3);   // two cells toward the camera
@@ -743,6 +755,103 @@ function freshLevel(i = 0) {
   check(FJ.state().debris.length > 0, "and throws the knight off");
   FJ.input.holding = false;
   step(1);
+}
+
+// --- 14. tongues that meet in mid-air both back off ---------------------
+{
+  FJ.loadLevel(PLAIN);
+  clearHazards();
+  const s = FJ.state();
+  const foe = loneRival(3, 0);
+  foe.hopTimer = 1e6; foe.restTimer = 1e6;   // it will not pick its own moment
+  foe.face = { x: -1, y: 0 };
+  // ...but it must genuinely hold its tongue out, or it jabs for minExtend and
+  // is already reeling in before the two can possibly meet.
+  foe.attacking = true; foe.holdTimer = 2;
+  s.player.x = 0; s.player.y = 0;
+  s.player.face = { x: 1, y: 0 };            // squared up, facing each other
+  s.player.dying = null; s.player.safeT = 1e6;
+
+  // Fire both at once, straight down the line between them.
+  FJ.input.downAt = performanceNow();
+  FJ.input.holding = true;
+  FJ.input.consumed = false;
+  FJ.input.steer.x = 0; FJ.input.steer.y = 0;
+  FJ.startTongue(foe);
+
+  let bothRetracting = false;
+  for (let i = 0; i < 120; i++) {
+    step(DT);
+    const pt = FJ.state().player.tongue, ft = FJ.state().enemies[0].tongue;
+    if (pt.state === "retract" && ft.state === "retract") { bothRetracting = true; break; }
+    if (FJ.state().player.dying || FJ.state().enemies[0].dead) break;
+  }
+  check(bothRetracting, "two tongues meeting head-on both turn back");
+  check(!FJ.state().player.dying && !FJ.state().enemies[0].dead,
+    "and neither knight is unhorsed by the exchange");
+  FJ.input.holding = false;
+  step(1.2);
+}
+
+// --- 15. rivals go for the spoils too -----------------------------------
+{
+  FJ.loadLevel(PLAIN);
+  clearHazards();
+  const s = FJ.state();
+  const foe = loneRival(0, 0);
+  foe.restTimer = 1e6;                       // no attacking, just walking
+  s.player.x = -R(); s.player.y = R();       // far away, out of the picture
+  s.player.dying = null; s.player.safeT = 1e6;
+
+  s.helmets.push({
+    x: 3, y: 0, z: 0, vx: 0, vy: 0, vz: 0, rot: 0, spin: 0,
+    armor: "#b0353a", trim: "#e5cfa0", life: 0, landed: true
+  });
+
+  const startGap = 3;
+  step(1.5);
+  const gap = Math.abs(FJ.state().enemies[0].x - 3);
+  check(gap < startGap, `a rival walks toward a fallen helm (${startGap} -> ${gap.toFixed(2)})`);
+
+  step(4);
+  check(FJ.state().helmets.length === 0, "and takes it off the field");
+  check(FJ.state().score === 0, "the player scores nothing for one they lost");
+}
+
+// --- 16. lives, and the end of the round --------------------------------
+{
+  FJ.loadLevel(MILLRACE);
+  clearHazards();
+  benchRivals();
+  const waterRow = FJ.state().lanes.findIndex(l => l.type === "water") - R();
+  const lives0 = FJ.state().lives;
+  check(lives0 === Math.round(FJ.CFG.lives), `a round starts with ${FJ.CFG.lives} lives`);
+
+  function drown() {
+    const s = FJ.state();
+    s.player.x = 0; s.player.y = waterRow;
+    s.player.state = "idle";
+    step(2.2);                                // die, then respawn or end
+  }
+
+  drown();
+  check(FJ.state().lives === lives0 - 1, "drowning costs a life");
+  check(!FJ.state().over, "with lives left, the round carries on");
+
+  for (let i = 0; i < lives0; i++) drown();
+  check(FJ.state().lives <= 0, "the lives run out");
+  check(FJ.state().over === true, "and the round ends");
+
+  // A finished round must go quiet: nothing may move after the last life.
+  const at = { x: FJ.state().player.x, y: FJ.state().player.y, score: FJ.state().score };
+  FJ.requestHop({ x: 120, y: 0 });
+  step(1);
+  check(FJ.state().player.x === at.x && FJ.state().score === at.score,
+    "and stops simulating once it is over");
+
+  FJ.loadLevel(MILLRACE);
+  check(FJ.state().lives === lives0 && !FJ.state().over,
+    "starting another round puts the knights back");
 }
 
 // --- 13. every level loads and is survivable to stand on ----------------
