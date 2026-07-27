@@ -33,8 +33,13 @@ brings you back on the other.
 
 ## Two on one couch
 
-Press **Right Shift** on the setup screen and a second knight joins, in rose to
-player one's blue. It only listens there — joining mid-fight would drop someone
+The setup screen shows a seat for each knight, with a portrait of the toad and
+rider they will actually take out — drawn with the same sprite code the fight
+uses, so what you see is what you get. An empty seat is dashed and greyed out
+with its invitation on it.
+
+Press **Right Shift** there and a second knight joins, in rose to player one's
+blue. It only listens on that screen — joining mid-fight would drop someone
 into a round already under way. Each has their own score, their own stable of lives, and their own
 half of the keyboard. Then pick a mode:
 

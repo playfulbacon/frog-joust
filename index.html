@@ -272,23 +272,46 @@
     gap: 9px;
     text-align: center;
   }
-  .party-line {
-    font-size: 11px;
-    letter-spacing: 0.08em;
-    color: var(--muted);
-  }
-  .party-line b { color: var(--parchment); }
-  .party-line.joined { color: #f07ab8; }
-  .party-keys {
+  .riders {
     display: flex;
-    gap: 18px;
+    gap: 14px;
     flex-wrap: wrap;
     justify-content: center;
+    align-items: stretch;
+  }
+  .rider {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 12px 16px 13px;
+    min-width: 158px;
+    border: 1px solid rgba(233, 239, 228, 0.16);
+    border-radius: 3px;
+    background: rgba(14, 30, 33, 0.72);
+    transition: opacity 200ms ease, border-color 200ms ease;
+  }
+  .rider canvas { display: block; }
+  .rider .who {
+    font-family: var(--font-display);
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+  }
+  .rider .keys {
     font-size: 9.5px;
     letter-spacing: 0.08em;
-    color: rgba(125, 146, 135, 0.75);
+    color: rgba(125, 146, 135, 0.85);
+    text-align: center;
+    line-height: 1.6;
   }
-  .party-keys b { color: var(--muted); font-weight: 600; }
+  .rider .keys b { color: var(--muted); font-weight: 600; }
+  /* An empty seat is faded out, and its prompt is the thing that stands out. */
+  .rider.empty { opacity: 0.55; border-style: dashed; }
+  .rider.empty canvas { opacity: 0.25; filter: grayscale(0.8); }
+  .rider.empty .who { color: var(--muted); }
+  .rider.empty .keys b { color: var(--parchment); }
   .modes { display: flex; gap: 6px; }
   .modes[hidden] { display: none; }
   .modes button[aria-pressed="true"]:not(:disabled) {
@@ -496,16 +519,10 @@
       <p>Knock the other knights off their toads. Try not to drown.</p>
     </div>
     <div class="party">
-      <div class="party-line" id="fj-p2">
-        Player two &mdash; press <b>Right Shift</b> to join
-      </div>
+      <div class="riders" id="fj-riders"></div>
       <div class="modes" id="fj-modes">
         <button id="fj-coop" type="button" aria-pressed="true" disabled>Co-op</button>
         <button id="fj-versus" type="button" aria-pressed="false" disabled>Versus</button>
-      </div>
-      <div class="party-keys">
-        <span><b>WASD</b> + <b>Shift</b> or <b>Space</b></span>
-        <span><b>IJKL</b> + <b>Right Shift</b></span>
       </div>
     </div>
     <div class="over-buttons">
@@ -2440,11 +2457,15 @@
   function drawMountAt(m, wx, wy) {
     drawShadow(wx, wy, m.z, 21);
     var p = proj(wx, wy, m.z);
-    var f = projDir(m.face.x, m.face.y);
-
     ctx.save();
     ctx.translate(p.x, p.y);
+    drawMountBody(m, projDir(m.face.x, m.face.y));
+    ctx.restore();
+  }
 
+  // The toad and its rider, drawn around the origin. Split out from the world
+  // drawing so the setup screen can show the same knight the fight will.
+  function drawMountBody(m, f) {
     var hide = m.hide || HIDE_PLAYER;
 
     // haunches, wide enough to read past the body
@@ -2527,7 +2548,6 @@
     if (!headNearer) drawHead();
     if (m.rider) drawKnight(0, -34, f, m.armor, m.trim);
     if (headNearer) drawHead();
-    ctx.restore();
   }
 
   // `bare` swaps the helm for the head that was inside it — used for a knight
@@ -2701,7 +2721,7 @@
   // HUD + MENU
   // =====================================================================
 
-  var elState, elLamp, elBoard, elFinal, elOver, elParty, elModes,
+  var elState, elLamp, elBoard, elFinal, elOver, elModes,
       elSetup, elGroundSub, elHint, elLevelName, elMenu, hintTimer = null;
 
   // One column per knight in the party: score above, a row of little helms
@@ -2799,15 +2819,95 @@
 
   function onSetup() { return elSetup && !elSetup.hidden; }
 
+  // --- the riders on the setup screen ----------------------------------
+  //
+  // Each seat gets a portrait of the knight and toad it will actually ride,
+  // drawn with the same sprite code the fight uses, so what you pick is what
+  // you get.
+
+  var riderCards = [];
+
+  function buildRiders(host) {
+    host.innerHTML = "";
+    riderCards = [];
+    for (var i = 0; i < SEATS.length; i++) {
+      var card = document.createElement("div");
+      card.className = "rider";
+
+      var cv = document.createElement("canvas");
+      cv.width = 132; cv.height = 132;
+      cv.style.width = "88px";
+      cv.style.height = "88px";
+
+      var who = document.createElement("div");
+      who.className = "who";
+
+      var keys = document.createElement("div");
+      keys.className = "keys";
+
+      card.appendChild(cv);
+      card.appendChild(who);
+      card.appendChild(keys);
+      host.appendChild(card);
+      riderCards.push({ card: card, cv: cv, c2d: cv.getContext("2d"), who: who, keys: keys });
+    }
+    renderRiders();
+  }
+
+  function renderRiders() {
+    for (var i = 0; i < riderCards.length; i++) {
+      var r = riderCards[i], here = i < partySize;
+      r.card.className = "rider" + (here ? "" : " empty");
+      r.who.textContent = SEATS[i].name + " knight";
+      r.who.style.color = here ? SEATS[i].css : "";
+      r.keys.innerHTML = here
+        ? (i === 0 ? "<b>WASD</b> to hop<br><b>Shift</b> or <b>Space</b> to shoot"
+                   : "<b>IJKL</b> to hop<br><b>Right Shift</b> to shoot")
+        : "press <b>Right Shift</b><br>to join";
+    }
+  }
+
+  // Redrawn every frame while the setup screen is up: the toads breathe, so
+  // the seats read as alive rather than as a couple of icons.
+  function drawRiders() {
+    for (var i = 0; i < riderCards.length; i++) {
+      var r = riderCards[i], c = r.c2d;
+      var w = r.cv.width, h = r.cv.height;
+      c.clearRect(0, 0, w, h);
+
+      var prev = ctx;
+      ctx = c;                                  // the sprite code draws to `ctx`
+      var bob = Math.sin(clockT * 2 + i * 1.7) * 2.2;
+
+      ctx.save();
+      ctx.translate(w / 2, h * 0.82);
+      ctx.scale(1.55, 1.55);
+
+      ctx.save();                               // a patch of ground to stand on
+      ctx.scale(1, ISO);
+      ctx.beginPath();
+      ctx.arc(0, 4 / ISO, 24, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(4,12,12,0.4)";
+      ctx.fill();
+      ctx.restore();
+
+      ctx.translate(0, bob);
+      drawMountBody({
+        hide: HIDE_PLAYER, armor: SEATS[i].armor, trim: SEATS[i].trim, rider: true,
+        face: { x: 0, y: 1 }
+      }, { x: 0, y: 1 });                        // facing the camera
+      ctx.restore();
+
+      ctx = prev;
+    }
+  }
+
   // Player two arrives from the setup screen only. Joining mid-round would
   // drop a knight into a fight already in progress, which helps nobody.
   function joinPlayerTwo() {
     if (partySize > 1) return;
     partySize = 2;
-    if (elParty) {
-      elParty.classList.add("joined");
-      elParty.innerHTML = "Player two has joined &mdash; <b>IJKL</b> and <b>Right Shift</b>";
-    }
+    renderRiders();
     if (elModes) {
       var bs = elModes.querySelectorAll("button");
       for (var i = 0; i < bs.length; i++) bs[i].disabled = false;
@@ -2971,7 +3071,6 @@
     elBoard = document.getElementById("fj-scoreboard");
     elFinal = document.getElementById("fj-final");
     elOver = document.getElementById("fj-gameover");
-    elParty = document.getElementById("fj-p2");
     elModes = document.getElementById("fj-modes");
     elSetup = document.getElementById("fj-setup");
     elGroundSub = document.getElementById("fj-groundsub");
@@ -3065,6 +3164,7 @@
     var drawer = document.getElementById("fj-drawer");
     buildTuners(document.getElementById("fj-tuners"));
     buildMenu(document.getElementById("fj-levellist"));
+    buildRiders(document.getElementById("fj-riders"));
 
     document.getElementById("fj-tune").addEventListener("click", function () {
       drawer.classList.toggle("open");
@@ -3132,6 +3232,7 @@
       acc -= FIXED_DT;
     }
     render();
+    if (onSetup()) drawRiders();
     syncHud();
     requestAnimationFrame(frame);
   }
