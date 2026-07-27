@@ -291,10 +291,15 @@
   .party-keys b { color: var(--muted); font-weight: 600; }
   .modes { display: flex; gap: 6px; }
   .modes[hidden] { display: none; }
-  .modes button[aria-pressed="true"] {
+  .modes button[aria-pressed="true"]:not(:disabled) {
     color: var(--pond-deep);
     background: var(--gold);
     border-color: var(--gold);
+  }
+  .modes button:disabled {
+    opacity: 0.4;
+    cursor: default;
+    border-color: rgba(233, 239, 228, 0.1);
   }
 
   .scoreboard.duo { flex-direction: row; gap: 26px; align-items: flex-start; }
@@ -485,25 +490,38 @@
     </div>
   </div>
 
-  <div class="menu" id="fj-levelmenu">
+  <div class="menu" id="fj-setup">
     <div class="menu-head">
-      <h2>Choose your ground</h2>
+      <h2>Take the field</h2>
       <p>Knock the other knights off their toads. Try not to drown.</p>
     </div>
     <div class="party">
       <div class="party-line" id="fj-p2">
         Player two &mdash; press <b>Right Shift</b> to join
       </div>
-      <div class="modes" id="fj-modes" hidden>
-        <button id="fj-coop" type="button" aria-pressed="true">Co-op</button>
-        <button id="fj-versus" type="button" aria-pressed="false">Versus</button>
+      <div class="modes" id="fj-modes">
+        <button id="fj-coop" type="button" aria-pressed="true" disabled>Co-op</button>
+        <button id="fj-versus" type="button" aria-pressed="false" disabled>Versus</button>
       </div>
       <div class="party-keys">
         <span><b>WASD</b> + <b>Shift</b> or <b>Space</b></span>
         <span><b>IJKL</b> + <b>Right Shift</b></span>
       </div>
     </div>
+    <div class="over-buttons">
+      <button id="fj-setup-go" type="button">Choose ground</button>
+    </div>
+  </div>
+
+  <div class="menu" id="fj-levelmenu" hidden>
+    <div class="menu-head">
+      <h2>Choose your ground</h2>
+      <p id="fj-groundsub">One knight rides.</p>
+    </div>
     <div class="levels" id="fj-levellist"></div>
+    <div class="over-buttons">
+      <button id="fj-levelback" type="button">Back to players</button>
+    </div>
   </div>
 
   <div class="drawer" id="fj-drawer" aria-label="Feel tuning">
@@ -2671,7 +2689,7 @@
   // =====================================================================
 
   var elState, elLamp, elBoard, elFinal, elOver, elParty, elModes,
-      elHint, elLevelName, elMenu, hintTimer = null;
+      elSetup, elGroundSub, elHint, elLevelName, elMenu, hintTimer = null;
 
   // One column per knight in the party: score above, a row of little helms
   // for what is left in the stable below.
@@ -2727,7 +2745,7 @@
         elFinal.textContent = String(players[0].score);
       }
     }
-    if (elOver) elOver.hidden = false;
+    showScreen("over");
   }
 
   function syncHud() {
@@ -2753,8 +2771,23 @@
     if (el) el.textContent = wrapping() ? "edges wrap" : "edges are walls";
   }
 
-  // Player two arrives from the menu. Joining mid-round would drop a knight
-  // into a fight already in progress, so it only takes effect on the next one.
+  // Three screens: who is riding, then where, then the fight. Only one is ever
+  // up at a time.
+  function showScreen(which) {
+    if (elSetup) elSetup.hidden = which !== "setup";
+    if (elMenu) elMenu.hidden = which !== "ground";
+    if (elOver) elOver.hidden = which !== "over";
+    if (which === "ground" && elGroundSub) {
+      elGroundSub.textContent = partySize > 1
+        ? (versus ? "Two knights, and only one walks away." : "Two knights, side by side.")
+        : "One knight rides.";
+    }
+  }
+
+  function onSetup() { return elSetup && !elSetup.hidden; }
+
+  // Player two arrives from the setup screen only. Joining mid-round would
+  // drop a knight into a fight already in progress, which helps nobody.
   function joinPlayerTwo() {
     if (partySize > 1) return;
     partySize = 2;
@@ -2762,15 +2795,16 @@
       elParty.classList.add("joined");
       elParty.innerHTML = "Player two has joined &mdash; <b>IJKL</b> and <b>Right Shift</b>";
     }
-    if (elModes) elModes.hidden = false;
+    if (elModes) {
+      var bs = elModes.querySelectorAll("button");
+      for (var i = 0; i < bs.length; i++) bs[i].disabled = false;
+    }
     audioStart();
     sfx.respawn();
-    if (!running) return;
-    loadLevel(levelIndex);            // reshuffle so both start together
-    setScore();
   }
 
   function setMode(toVersus) {
+    if (partySize < 2) return;        // nothing to choose between on your own
     versus = !!toVersus;
     var coop = document.getElementById("fj-coop");
     var vs = document.getElementById("fj-versus");
@@ -2811,8 +2845,7 @@
         audioStart();
         loadLevel(i);
         elLevelName.textContent = lv.name;
-        elMenu.hidden = true;
-        elOver.hidden = true;
+        showScreen("fight");
         running = true;
         setScore();
       });
@@ -2927,6 +2960,8 @@
     elOver = document.getElementById("fj-gameover");
     elParty = document.getElementById("fj-p2");
     elModes = document.getElementById("fj-modes");
+    elSetup = document.getElementById("fj-setup");
+    elGroundSub = document.getElementById("fj-groundsub");
     elHint = document.getElementById("fj-hint");
     elLevelName = document.getElementById("fj-levelname");
     elMenu = document.getElementById("fj-levelmenu");
@@ -2972,7 +3007,7 @@
       var key = (e.key || "").length === 1 ? e.key.toLowerCase() : e.key;
       var shootSeat = seatOfShootKey(e);
 
-      if (shootSeat === 1 && (!running || partySize < 2)) {
+      if (shootSeat === 1 && onSetup()) {
         joinPlayerTwo();                       // right shift is the invitation
         e.preventDefault();
         return;
@@ -3030,20 +3065,26 @@
       syncEnemyCount();
     });
     document.getElementById("fj-menu").addEventListener("click", function () {
-      elMenu.hidden = false;
+      showScreen("ground");
       drawer.classList.remove("open");
+    });
+    document.getElementById("fj-setup-go").addEventListener("click", function () {
+      audioStart();
+      showScreen("ground");
+    });
+    document.getElementById("fj-levelback").addEventListener("click", function () {
+      showScreen("setup");
     });
 
     document.getElementById("fj-again").addEventListener("click", function () {
       audioStart();
       loadLevel(levelIndex);
-      elOver.hidden = true;
+      showScreen("fight");
       running = true;
       setScore();
     });
     document.getElementById("fj-pick").addEventListener("click", function () {
-      elOver.hidden = true;
-      elMenu.hidden = false;
+      showScreen("ground");
     });
 
     document.getElementById("fj-coop").addEventListener("click", function () { setMode(false); });
@@ -3115,7 +3156,7 @@
     bindDom();
     setScore();
     syncHint();
-    elMenu.hidden = false;
+    showScreen("setup");
     requestAnimationFrame(frame);
   }
 })();

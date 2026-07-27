@@ -10,7 +10,12 @@ before any of it gets built in Unity.
 ## Play it
 
 Open `index.html`. It needs no build step and no server — a `file://` path
-works, as does any static host. Pick a level from the menu.
+works, as does any static host.
+
+Three screens, in order: **who is riding**, then **where**, then the fight. The
+first sets the party up — a second knight can join, and with two of you the
+co-op/versus choice unlocks. The second picks the ground and can go back to the
+first. **Levels** in the corner returns to the ground list at any time.
 
 The camera is tilted back over a checkerboard, one square per cell, with the
 board squared up to the screen rather than stood on its corner: rows run across,
@@ -28,8 +33,9 @@ brings you back on the other.
 
 ## Two on one couch
 
-Press **Right Shift** at the menu and a second knight joins, in rose to player
-one's blue. Each has their own score, their own stable of lives, and their own
+Press **Right Shift** on the setup screen and a second knight joins, in rose to
+player one's blue. It only listens there — joining mid-fight would drop someone
+into a round already under way. Each has their own score, their own stable of lives, and their own
 half of the keyboard. Then pick a mode:
 
 | | |
@@ -41,8 +47,8 @@ They differ in how a round ends, too. In co-op it runs until *both* stables are
 empty — one knight being knocked out leaves the other still riding. In versus it
 ends the moment either of you is finished, and the one still mounted takes it.
 
-Joining only takes effect on the next round, since dropping a knight into a
-fight already in progress is not a thing anyone wants.
+On your own, the mode buttons are greyed out: there is nothing to choose
+between until somebody else is on the field.
 
 **Tune** opens sliders for every number that affects feel — including how many
 rivals there are and how bold they get — and they persist in local storage.
