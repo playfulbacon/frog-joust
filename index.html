@@ -9,17 +9,14 @@
 <!-- ===== ARTIFACT BODY START ===== -->
 <style>
   :root {
-    --pond:      #0b1618;
     --pond-deep: #060e10;
     --rim:       #16292b;
-    --lily-a:    #3f7a4f;
-    --lily-b:    #33684a;
     --parchment: #e9efe4;
     --muted:     #7d9287;
     --gold:      #e4b429;
-    --cobalt:    #2f5fd0;
-    --crimson:   #b0353a;
     --tongue:    #e8607a;
+    --water:     #2f7fa8;
+    --road:      #4a4f57;
 
     --font-display: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
     --font-ui: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
@@ -112,6 +109,7 @@
   .lamp.hop     { background: var(--gold); }
   .lamp.extend  { background: var(--tongue); }
   .lamp.retract { background: #8c4a63; }
+  .lamp.dead    { background: #c04040; }
 
   .tally {
     display: flex;
@@ -121,26 +119,30 @@
     pointer-events: auto;
   }
 
-  .score b {
+  .stats { display: flex; gap: 16px; align-items: flex-start; }
+
+  .stat b {
     font-family: var(--font-display);
-    font-size: 30px;
+    font-size: 28px;
     font-weight: 600;
     line-height: 1;
     color: var(--gold);
     font-variant-numeric: tabular-nums;
     text-shadow: 0 1px 0 rgba(0, 0, 0, 0.7);
+    display: block;
+    text-align: right;
   }
-  .score span {
-    font-family: var(--font-ui);
+  .stat.lost b { color: #c9707a; }
+  .stat span {
     font-size: 10px;
-    letter-spacing: 0.16em;
+    letter-spacing: 0.14em;
     color: var(--muted);
     display: block;
     text-align: right;
     margin-top: 3px;
   }
 
-  .btn-row { display: flex; gap: 6px; }
+  .btn-row { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 
   button {
     font-family: var(--font-ui);
@@ -174,14 +176,86 @@
     line-height: 1.7;
     letter-spacing: 0.06em;
     color: var(--muted);
-    /* an absolutely positioned box at left:50% can only grow into the
-       remaining half of the screen, so set the width explicitly */
     width: min(92vw, 440px);
     text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
     transition: opacity 500ms ease;
   }
   .hint b { color: var(--parchment); font-weight: 600; }
-  .hint.away { opacity: 0.28; }
+  .hint.away { opacity: 0.22; }
+
+  /* ---- level menu --------------------------------------------------- */
+
+  .menu {
+    position: absolute;
+    inset: 0;
+    background: rgba(5, 13, 15, 0.94);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 18px;
+    padding: 24px 16px calc(env(safe-area-inset-bottom, 0px) + 24px);
+    overflow-y: auto;
+  }
+  .menu[hidden] { display: none; }
+
+  .menu-head { text-align: center; display: flex; flex-direction: column; gap: 6px; }
+  .menu-head h2 {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 22px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+  }
+  .menu-head p {
+    margin: 0;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+  }
+
+  .levels {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 10px;
+    width: min(94vw, 660px);
+  }
+
+  .level {
+    display: grid;
+    gap: 8px;
+    text-align: left;
+    padding: 12px;
+    text-transform: none;
+    letter-spacing: normal;
+    font-size: 12px;
+    background: rgba(14, 30, 33, 0.9);
+  }
+  .level strong {
+    font-family: var(--font-display);
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  .level em {
+    font-style: normal;
+    font-size: 10.5px;
+    line-height: 1.5;
+    color: var(--muted);
+  }
+  .level .strip {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .level .strip i { display: block; height: 4px; }
+  .level .strip i.grass { background: #356e45; }
+  .level .strip i.water { background: var(--water); }
+  .level .strip i.road  { background: var(--road); }
 
   /* ---- tuning drawer ------------------------------------------------ */
 
@@ -240,14 +314,8 @@
     background: transparent;
     margin: 0;
   }
-  .tuner input::-webkit-slider-runnable-track {
-    height: 2px;
-    background: rgba(233, 239, 228, 0.22);
-  }
-  .tuner input::-moz-range-track {
-    height: 2px;
-    background: rgba(233, 239, 228, 0.22);
-  }
+  .tuner input::-webkit-slider-runnable-track { height: 2px; background: rgba(233, 239, 228, 0.22); }
+  .tuner input::-moz-range-track { height: 2px; background: rgba(233, 239, 228, 0.22); }
   .tuner input::-webkit-slider-thumb {
     -webkit-appearance: none;
     width: 15px; height: 15px;
@@ -290,28 +358,38 @@
   <div class="hud">
     <div class="banner">
       <h1>Frog Joust</h1>
-      <div class="sub">Movement test&nbsp;· 0.1</div>
+      <div class="sub" id="fj-levelname">Movement test&nbsp;· 0.2</div>
       <div class="readout">
         <i class="lamp idle" id="fj-lamp"></i><span id="fj-state">IDLE</span>
       </div>
     </div>
 
     <div class="tally">
-      <div class="score"><b id="fj-ko">0</b><span>unhorsed</span></div>
+      <div class="stats">
+        <div class="stat"><b id="fj-ko">0</b><span>unhorsed</span></div>
+        <div class="stat lost"><b id="fj-lost">0</b><span>lost</span></div>
+      </div>
       <div class="btn-row">
+        <button id="fj-menu" type="button">Levels</button>
         <button id="fj-sound" type="button" aria-pressed="true">Sound</button>
         <button id="fj-tune" type="button">Tune</button>
-        <button id="fj-reset" type="button">Reset</button>
       </div>
     </div>
   </div>
 
   <p class="hint" id="fj-hint">
-    <b>Swipe</b> to hop &nbsp;·&nbsp; up is forward<br>
-    <b>Press and hold</b> to shoot the tongue<br>
-    drag to steer it &nbsp;·&nbsp; <b>release</b> to reel in<br>
-    you are free to move the moment you let go
+    <b>Swipe</b> to hop &nbsp;·&nbsp; up is forward &nbsp;·&nbsp; edges wrap<br>
+    <b>Press and hold</b> to shoot the tongue, drag to steer<br>
+    ride the logs across &nbsp;·&nbsp; water and wheels are fatal
   </p>
+
+  <div class="menu" id="fj-levelmenu">
+    <div class="menu-head">
+      <h2>Choose your ground</h2>
+      <p>Knock the other knights off their toads. Try not to drown.</p>
+    </div>
+    <div class="levels" id="fj-levellist"></div>
+  </div>
 
   <div class="drawer" id="fj-drawer" aria-label="Feel tuning">
     <div class="drawer-head">
@@ -321,7 +399,7 @@
     <div class="tuners" id="fj-tuners"></div>
     <div class="drawer-foot">
       <p>These are the numbers to carry into Unity. They live on the ground plane only — height is
-      purely cosmetic here, exactly as it will be under an isometric camera.</p>
+      cosmetic, exactly as it will be under a tilted camera.</p>
       <button id="fj-close" type="button">Close</button>
     </div>
   </div>
@@ -343,68 +421,137 @@
   } catch (e) { /* non-browser host */ }
 
   // =====================================================================
-  // CONFIG — every gameplay number lives here, in world units (tiles) and
-  // seconds, so it ports to Unity 1:1. Nothing below reads a pixel value
-  // for gameplay; pixels only ever appear in the isometric projection.
+  // CONFIG — every gameplay number lives here, in cells and seconds, so it
+  // ports to Unity 1:1. Pixels only ever appear in the projection.
   // =====================================================================
 
   var DEFAULTS = {
     // --- world
     cell: 64,             // px per cell — the only world-to-screen number
-    arena: 11,            // arena is arena x arena cells
+    arena: 11,            // arena is arena x arena cells, and it wraps
 
     // --- hopping (four directions, whole cells, always grid aligned)
-    hopCells: 1,          // cells travelled per hop
-    hopTime: 0.19,        // seconds per hop
-    hopHeight: 26,        // cosmetic lift at the apex, read as scale
+    hopCells: 1,
+    hopTime: 0.19,
+    hopHeight: 26,        // cosmetic lift at the apex
 
     // --- tongue
-    tongueMax: 3.0,       // cells, max reach
-    extendSpeed: 8.5,     // tiles/sec while the button is held
-    retractSpeed: 11.0,   // tiles/sec the leash shortens once released
-    sweepSpeed: 5.0,      // tiles/sec the tip still travels while reeling in
+    tongueMax: 3.0,       // cells of reach
+    extendSpeed: 8.5,     // cells/sec while the button is held
+    retractSpeed: 11.0,   // cells/sec the leash shortens once released
+    sweepSpeed: 5.0,      // cells/sec the tip still travels while reeling in
     steerRate: 6.0,       // radians/sec the tip can swing its heading
-    curveBow: 0.45,       // how hard the tongue bows away from a straight line
-    minExtend: 0.14,      // sec — a quick tap still gets a full jab
-    hitRadius: 0.5,       // cells — tongue vs rider, i.e. half a cell
+    curveBow: 0.45,
+    minExtend: 0.14,
+    hitRadius: 0.5,       // cells — tongue vs rider
+
+    // --- rival knights
+    enemyCount: 3,
+    enemyHopEvery: 0.9,   // sec between a rival's hops
+    enemyRange: 2.6,      // cells — how close before it takes a shot
+    enemyHold: 0.34,      // sec it keeps its tongue out
+    enemyRest: 1.6,       // sec between a rival's shots
+    respawnDelay: 3.0,    // sec before an unhorsed rival is replaced
+    graceTime: 1.8,       // sec you cannot be tongued after coming back
 
     // --- input
-    swipeThreshold: 22,   // px of travel that turns a press into a swipe
-    swipeGrace: 140,      // ms window in which a press can still become a swipe
-    steerDeadzone: 14     // px of drag before the tongue starts steering
+    swipeThreshold: 22,
+    swipeGrace: 140,
+    steerDeadzone: 14
   };
 
   var TUNABLE = [
-    { key: "hopCells",       label: "Hop distance",  min: 1,    max: 4,     step: 1,    unit: " cells" },
-    { key: "hopTime",        label: "Hop time",      min: 0.08, max: 0.5,   step: 0.01, unit: " s" },
-    { key: "tongueMax",      label: "Tongue reach",  min: 1.5,  max: 6,     step: 0.1,  unit: " cells" },
-    { key: "extendSpeed",    label: "Extend speed",  min: 3,    max: 22,    step: 0.5,  unit: " c/s" },
-    { key: "retractSpeed",   label: "Retract speed", min: 3,    max: 28,    step: 0.5,  unit: " c/s" },
-    { key: "steerRate",      label: "Steer rate",    min: 0,    max: 16,    step: 0.25, unit: " rad/s" },
-    { key: "curveBow",       label: "Curve bow",     min: 0.05, max: 0.9,   step: 0.05, unit: "" },
-    { key: "swipeThreshold", label: "Swipe travel",  min: 8,    max: 60,    step: 1,    unit: " px" }
+    { key: "hopCells",     label: "Hop distance",  min: 1,    max: 4,   step: 1,    unit: " cells" },
+    { key: "hopTime",      label: "Hop time",      min: 0.08, max: 0.5, step: 0.01, unit: " s" },
+    { key: "tongueMax",    label: "Tongue reach",  min: 1.5,  max: 6,   step: 0.1,  unit: " cells" },
+    { key: "extendSpeed",  label: "Extend speed",  min: 3,    max: 22,  step: 0.5,  unit: " c/s" },
+    { key: "retractSpeed", label: "Retract speed", min: 3,    max: 28,  step: 0.5,  unit: " c/s" },
+    { key: "steerRate",    label: "Steer rate",    min: 0,    max: 16,  step: 0.25, unit: " rad/s" },
+    { key: "curveBow",     label: "Curve bow",     min: 0.05, max: 0.9, step: 0.05, unit: "" },
+    { key: "enemyCount",   label: "Rivals",        min: 0,    max: 6,   step: 1,    unit: "" },
+    { key: "enemyHopEvery",label: "Rival pace",    min: 0.25, max: 2,   step: 0.05, unit: " s" },
+    { key: "enemyRange",   label: "Rival nerve",   min: 1,    max: 4,   step: 0.1,  unit: " cells" }
   ];
 
   var CFG = {};
   for (var k in DEFAULTS) CFG[k] = DEFAULTS[k];
 
-  var TONGUE_NODES = 26;   // curve resolution — visual fidelity, not feel
-  var FIXED_DT = 1 / 120;  // physics step
-  // Foreshortening: a cell is CELL wide and CELL*ISO tall. This is the board
-  // squared up to the screen rather than stood on a corner — rows run across,
-  // columns run up and down, and the camera is simply tilted back. 0.5 is a
-  // true 2:1 board seen this way; a little more is a slightly steeper camera.
-  var ISO = 0.6;
+  var TONGUE_NODES = 26;
+  var FIXED_DT = 1 / 120;
+  var ISO = 0.6;           // vertical foreshortening — the camera's pitch
   var LIP = 0.4;           // depth of the platform's near face, in cells
   var TONGUE_Z = 15;       // px the tongue floats above the ground plane
+
+  // =====================================================================
+  // LEVELS
+  //
+  // A level is just a stack of lanes, bottom row first is irrelevant — index
+  // 0 is the far row. Water and road lanes carry their own traffic.
+  // =====================================================================
+
+  function grass() { return { type: "grass" }; }
+  function water(dir, speed, len, gap) {
+    return { type: "water", dir: dir, speed: speed, len: len, gap: gap };
+  }
+  function road(dir, speed, gap) {
+    return { type: "road", dir: dir, speed: speed, len: 1.6, gap: gap };
+  }
+
+  var LEVELS = [
+    {
+      name: "Millrace",
+      blurb: "One stream through the middle. Ride a log across, and mind where it lets you off.",
+      lanes: function () {
+        var L = [];
+        for (var i = 0; i < 11; i++) L.push(grass());
+        L[5] = water(1, 1.5, 3, 2.6);
+        return L;
+      }
+    },
+    {
+      name: "Twin Races",
+      blurb: "Two streams running opposite ways, with dry ground between them to regroup on.",
+      lanes: function () {
+        var L = [];
+        for (var i = 0; i < 11; i++) L.push(grass());
+        L[3] = water(1, 1.7, 3, 2.4);
+        L[7] = water(-1, 1.3, 2, 2.2);
+        return L;
+      }
+    },
+    {
+      name: "The King's Road",
+      blurb: "A two-lane road across the middle. The carts do not stop for knights.",
+      lanes: function () {
+        var L = [];
+        for (var i = 0; i < 11; i++) L.push(grass());
+        L[4] = road(1, 3.4, 5.5);
+        L[5] = road(-1, 4.2, 6.5);
+        return L;
+      }
+    },
+    {
+      name: "Toll Crossing",
+      blurb: "Stream, road, stream. Everything here is trying to kill you, including the other knights.",
+      lanes: function () {
+        var L = [];
+        for (var i = 0; i < 11; i++) L.push(grass());
+        L[2] = water(1, 1.6, 3, 2.4);
+        L[4] = road(-1, 3.8, 6);
+        L[5] = road(1, 3.0, 5);
+        L[8] = water(-1, 1.4, 2, 2.6);
+        return L;
+      }
+    }
+  ];
 
   // =====================================================================
   // SOUND
   //
   // Placeholder voices, synthesised rather than sampled: no files to load and
-  // every one of them is a handful of numbers you can argue with. Nothing is
-  // built until the first touch, because browsers will not start audio before
-  // a gesture anyway.
+  // every one is a handful of numbers you can argue with. Nothing is built
+  // until the first touch, because browsers will not start audio before a
+  // gesture anyway.
   // =====================================================================
 
   var audio = { ctx: null, out: null, muted: false };
@@ -465,28 +612,28 @@
   }
 
   var sfx = {
-    hop: function () {
-      blip("sine", 190, 470, 0.11, 0.16);         // the push off
-      rush(900, 2200, 0.05, 0.05, 2);
-    },
-    land: function () {
-      blip("sine", 150, 70, 0.09, 0.13);          // weight arriving
-      rush(500, 180, 0.07, 0.07, 0.9);
-    },
-    tongueOut: function () {
-      rush(700, 3000, 0.16, 0.1, 1.8);            // thwip
-      blip("triangle", 320, 900, 0.13, 0.08);
-    },
-    tongueBack: function () {
-      rush(2600, 500, 0.15, 0.08, 1.6);           // slurp
-      blip("triangle", 780, 240, 0.16, 0.07);
-    },
+    hop:        function () { blip("sine", 190, 470, 0.11, 0.16); rush(900, 2200, 0.05, 0.05, 2); },
+    land:       function () { blip("sine", 150, 70, 0.09, 0.13); rush(500, 180, 0.07, 0.07, 0.9); },
+    tongueOut:  function () { rush(700, 3000, 0.16, 0.1, 1.8); blip("triangle", 320, 900, 0.13, 0.08); },
+    tongueBack: function () { rush(2600, 500, 0.15, 0.08, 1.6); blip("triangle", 780, 240, 0.16, 0.07); },
+    rivalOut:   function () { rush(500, 1800, 0.16, 0.06, 1.8); blip("triangle", 220, 540, 0.14, 0.05); },
     hit: function () {
-      rush(1400, 400, 0.13, 0.16, 0.8);           // the thump
-      blip("square", 540, 500, 0.3, 0.1);         // armour, ringing
+      rush(1400, 400, 0.13, 0.16, 0.8);
+      blip("square", 540, 500, 0.3, 0.1);
       blip("square", 817, 760, 0.26, 0.06, 0.005);
       blip("sine", 120, 60, 0.22, 0.12);
-    }
+    },
+    splash: function () {
+      rush(2400, 300, 0.42, 0.16, 0.5);          // the gulp
+      blip("sine", 420, 90, 0.3, 0.1);
+      rush(900, 1600, 0.2, 0.05, 2, 0.06);       // droplets after
+    },
+    squash: function () {
+      rush(300, 90, 0.26, 0.2, 0.7);
+      blip("sawtooth", 160, 50, 0.24, 0.12);
+    },
+    horn: function () { blip("sawtooth", 320, 300, 0.26, 0.05); blip("sawtooth", 404, 380, 0.26, 0.04); },
+    respawn: function () { blip("sine", 380, 760, 0.16, 0.1); blip("sine", 570, 1140, 0.2, 0.05, 0.07); }
   };
 
   // =====================================================================
@@ -495,6 +642,7 @@
 
   function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
   function lerp(a, b, t) { return a + (b - a) * t; }
+  function bound() { return Math.floor(CFG.arena / 2); }
 
   // The board's axes are square to the screen: +x is right, +y is toward the
   // camera. Only the vertical is foreshortened. z is cosmetic height in px.
@@ -509,7 +657,6 @@
     return { x: sx / CFG.cell, y: sy / (CFG.cell * ISO) };
   }
 
-  // Direction a world vector points, normalized in screen space.
   function projDir(wx, wy) {
     var d = Math.hypot(wx, wy * ISO) || 1;
     return { x: wx / d, y: (wy * ISO) / d };
@@ -519,67 +666,172 @@
   // angle, so the result is exactly ±1 with no floating-point crumbs — that is
   // what keeps the frog perfectly cell-aligned forever.
   //
-  // Hops feed this the RAW screen delta, not an unprojected one. The board's
-  // axes line up with the screen's, so up is forward and right is right; and
-  // snapping in screen space keeps the boundary between directions at a true
-  // 45 degrees, instead of biasing toward the squashed axis.
+  // Hops feed this the RAW screen delta. The board's axes line up with the
+  // screen's, so up is forward and right is right; snapping in screen space
+  // also keeps the boundary between directions at a true 45 degrees instead of
+  // biasing toward the squashed axis.
   function snapDir(wx, wy) {
     if (Math.abs(wx) >= Math.abs(wy)) return { x: wx < 0 ? -1 : 1, y: 0 };
     return { x: 0, y: wy < 0 ? -1 : 1 };
+  }
+
+  // --- the board is a torus -------------------------------------------
+  //
+  // Hop off one edge and you come back on the other. Note this applies to
+  // HOPS only: being carried off the edge by a log is not a wrap, it is a
+  // drowning, which is the whole point of riding one to the end.
+
+  function wrapCoord(v) {
+    var s = CFG.arena, R = bound();
+    return ((v + R) % s + s) % s - R;
+  }
+
+  // Shortest signed distance between two coordinates across the wrap.
+  function wrapDelta(d) {
+    var s = CFG.arena;
+    return d - Math.round(d / s) * s;
+  }
+
+  function wrapDist(a, b) {
+    return Math.hypot(wrapDelta(b.x - a.x), wrapDelta(b.y - a.y));
+  }
+
+  // Call fn for a position and for every wrapped copy of it that could also be
+  // on screen. This is what makes a hop across the edge look continuous rather
+  // than like a teleport: the frog leaves one side while its copy arrives at
+  // the other, and on landing the copy simply becomes the real thing.
+  function eachWrap(x, y, fn) {
+    var s = CFG.arena, R = bound();
+    var xs = [0], ys = [0];
+    // Only once the mount is genuinely PAST the last cell — which only happens
+    // mid-hop — is a second copy wanted. Ghosting anything merely near an edge
+    // would leave duplicate frogs parked outside the board.
+    if (x > R) xs.push(-s);
+    if (x < -R) xs.push(s);
+    if (y > R) ys.push(-s);
+    if (y < -R) ys.push(s);
+    for (var i = 0; i < xs.length; i++) {
+      for (var j = 0; j < ys.length; j++) fn(x + xs[i], y + ys[j]);
+    }
   }
 
   // =====================================================================
   // STATE
   // =====================================================================
 
-  var player, enemies, debris, tongue, ko;
+  var level, lanes, hazards, player, enemies, debris, ripples, ko, lost, running;
 
-  function makeMount(x, y, armor, trim) {
+  var ARMOURS = [
+    { armor: "#b0353a", trim: "#e5cfa0" },
+    { armor: "#8d4bb0", trim: "#e5cfa0" },
+    { armor: "#c2761f", trim: "#e5cfa0" },
+    { armor: "#3f8f86", trim: "#e5cfa0" },
+    { armor: "#5a6ebd", trim: "#e5cfa0" },
+    { armor: "#7e9440", trim: "#e5cfa0" }
+  ];
+
+  function makeTongue() {
+    var t = {
+      state: "idle",         // idle | extend | retract
+      len: 0,                // cells of leash paid out — the hard reach limit
+      t: 0,
+      tip: { x: 0, y: 0 },
+      prev: { x: 0, y: 0 },  // last frame's tip, for knockback velocity
+      dir: { x: 1, y: 0 },   // the tip's heading; this is what steering turns
+      nodes: []
+    };
+    for (var i = 0; i < TONGUE_NODES; i++) t.nodes.push({ x: 0, y: 0 });
+    return t;
+  }
+
+  function makeMount(x, y, skin) {
     return {
       x: x, y: y, z: 0,
       face: { x: 0, y: 1 },
-      armor: armor, trim: trim,
+      armor: skin.armor, trim: skin.trim,
       rider: true,
       bob: Math.random() * Math.PI * 2,
       state: "idle",          // idle | hop
-      hop: null
+      hop: null,
+      safeT: 0,
+      tongue: makeTongue(),
+      // rival brain
+      hopTimer: 0, restTimer: 0, holdTimer: 0, attacking: false,
+      dead: false, respawnIn: 0
     };
   }
 
-  function reset() {
-    player = makeMount(0, 0, "#2f5fd0", "#e4b429");
-    player.bob = 0;
-    enemies = [
-      makeMount(-3, -3, "#b0353a", "#e5cfa0"),
-      makeMount(3, -3, "#8d4bb0", "#e5cfa0"),
-      makeMount(3, 3, "#c2761f", "#e5cfa0"),
-      makeMount(-3, 3, "#3f8f86", "#e5cfa0")
-    ];
-    // One rival facing each way, so every facing is on screen to look at
-    // (snapping "toward the centre" would tie on the diagonal and point them
-    // all east or west).
-    var faces = [{ x: 0, y: 1 }, { x: -1, y: 0 }, { x: 0, y: -1 }, { x: 1, y: 0 }];
-    for (var i = 0; i < enemies.length; i++) enemies[i].face = faces[i];
-    debris = [];
-    ko = 0;
+  function laneAt(y) {
+    var i = Math.round(y) + bound();
+    if (i < 0 || i >= lanes.length) return lanes[clamp(i, 0, lanes.length - 1)];
+    return lanes[i];
+  }
 
-    tongue = {
-      state: "idle",          // idle | extend | retract
-      len: 0,                 // tiles of leash paid out — the hard reach limit
-      t: 0,                   // seconds spent extending
-      tip: { x: 0, y: 0 },
-      prev: { x: 0, y: 0 },   // last frame's tip, for knockback velocity
-      dir: { x: 1, y: 0 },    // the tip's heading; this is what steering turns
-      nodes: []               // sampled curve, shared by drawing and hit tests
-    };
-    for (var n = 0; n < TONGUE_NODES; n++) {
-      tongue.nodes.push({ x: 0, y: 0 });
+  function loadLevel(index) {
+    level = LEVELS[clamp(index, 0, LEVELS.length - 1)];
+    lanes = level.lanes();
+    for (var i = 0; i < lanes.length; i++) {
+      lanes[i].y = i - bound();
+      lanes[i].timer = 0;
     }
+    hazards = [];
+    debris = [];
+    ripples = [];
+    ko = 0;
+    lost = 0;
+
+    // Let the traffic build up before anyone sees the level, or it opens on
+    // an empty stream and you stand about waiting for the first log.
+    for (var p = 0; p < 900; p++) updateHazards(1 / 60);
+
+    player = makeMount(0, spawnRow(), { armor: "#2f5fd0", trim: "#e4b429" });
+    player.bob = 0;
+    player.face = { x: 0, y: -1 };
+    player.safeT = CFG.graceTime;
+    enemies = [];
+    for (var e = 0; e < CFG.enemyCount; e++) spawnEnemy(e);
+    running = true;
   }
 
-  // Where the tongue leaves the toad's mouth.
+  // Somewhere dry to start, as far from the far edge as we can manage.
+  function spawnRow() {
+    var R = bound();
+    for (var y = R; y >= -R; y--) if (lanes[y + R].type === "grass") return y;
+    return 0;
+  }
+
+  // Somewhere dry, and not on top of whoever we are avoiding.
+  function safeCell(awayFrom, minDist) {
+    var R = bound();
+    for (var tries = 0; tries < 80; tries++) {
+      var y = Math.floor(Math.random() * CFG.arena) - R;
+      if (laneAt(y).type !== "grass") continue;
+      var x = Math.floor(Math.random() * CFG.arena) - R;
+      if (awayFrom && wrapDist({ x: x, y: y }, awayFrom) < minDist) continue;
+      return { x: x, y: y };
+    }
+    return { x: 0, y: -bound() };
+  }
+
+  function spawnEnemy(i) {
+    var at = safeCell(player, 3.5);
+    var m = makeMount(at.x, at.y, ARMOURS[i % ARMOURS.length]);
+    m.face = { x: 0, y: 1 };
+    m.hopTimer = Math.random() * CFG.enemyHopEvery;
+    // Arriving rivals size you up first. Without this they can close and fire
+    // in one movement, which reads as being ambushed by a spawn.
+    m.restTimer = CFG.enemyRest;
+    enemies[i] = m;
+  }
+
   function mouth(m) {
     return { x: m.x + m.face.x * 0.42, y: m.y + m.face.y * 0.42 };
+  }
+
+  function allMounts() {
+    var out = [player];
+    for (var i = 0; i < enemies.length; i++) if (enemies[i]) out.push(enemies[i]);
+    return out;
   }
 
   // =====================================================================
@@ -589,17 +841,14 @@
   //   press + travel <grace. reinterpreted as a swipe; the tongue is
   //                          cancelled before it is meaningfully out
   //   press + travel >grace. steers the tongue that is already in flight
-  //   release .............. tongue reels in
-  //
-  // Holding through a hop is buffered: the tongue fires the instant the
-  // frog lands, so the control never feels like it swallowed an input.
+  //   release .............. tongue reels in, and you are free to move
   // =====================================================================
 
   var input = {
-    holding: false,       // finger/space is down and this press is a "hold"
-    consumed: false,      // this hold has already spawned a tongue
+    holding: false,
+    consumed: false,
     steer: { x: 0, y: 0 },
-    hopQueue: null,       // one buffered hop direction
+    hopQueue: null,
     pointerId: null,
     origin: { x: 0, y: 0 },
     downAt: 0,
@@ -609,8 +858,8 @@
 
   function now() { return (typeof performance !== "undefined" ? performance.now() : 0); }
 
-  function requestHop(dirWorld) {
-    input.hopQueue = snapDir(dirWorld.x, dirWorld.y);
+  function requestHop(screenDelta) {
+    input.hopQueue = snapDir(screenDelta.x, screenDelta.y);
   }
 
   function pressDown(x, y) {
@@ -632,13 +881,13 @@
 
     if (!input.swiped && input.holding && dist > CFG.swipeThreshold &&
         now() - input.downAt < CFG.swipeGrace) {
-      // Reinterpret: this was a swipe all along. Kill the nascent tongue.
+      // Reinterpret: this was a swipe all along.
       input.swiped = true;
       input.holding = false;
       // Only kill a tongue THIS press started. One that is already reeling in
       // belongs to the previous shot and must be left to finish.
-      if (tongue.state === "extend") cancelTongue();
-      requestHop({ x: dx, y: dy });   // raw screen delta: up is forward
+      if (player.tongue.state === "extend") cancelTongue(player);
+      requestHop({ x: dx, y: dy });
       return;
     }
     if (input.holding) {
@@ -658,14 +907,11 @@
     input.steer.x = 0; input.steer.y = 0;
   }
 
-  // --- keyboard mirror, for desktop -----------------------------------
   var KEY_VEC = {
     ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0],
     w: [0, -1], s: [0, 1], a: [-1, 0], d: [1, 0]
   };
 
-  // Screen-space vector from the held keys; callers decide whether to snap it
-  // (hopping) or unproject it (steering).
   function keyVector() {
     var sx = 0, sy = 0;
     for (var key in input.keys) {
@@ -679,150 +925,141 @@
 
   // =====================================================================
   // TONGUE
+  //
+  // Every mount carries one, player and rival alike — the only difference is
+  // where the steering comes from.
   // =====================================================================
 
-  function startTongue() {
-    var m = mouth(player);
-    tongue.state = "extend";
-    tongue.len = 0;
-    tongue.t = 0;
-    tongue.tip.x = m.x; tongue.tip.y = m.y;
-    tongue.prev.x = m.x; tongue.prev.y = m.y;
-    tongue.dir.x = player.face.x; tongue.dir.y = player.face.y;
-    sampleCurve();
+  function startTongue(m) {
+    var t = m.tongue, o = mouth(m);
+    t.state = "extend";
+    t.len = 0;
+    t.t = 0;
+    t.tip.x = o.x; t.tip.y = o.y;
+    t.prev.x = o.x; t.prev.y = o.y;
+    t.dir.x = m.face.x; t.dir.y = m.face.y;
+    sampleCurve(m);
   }
 
-  function cancelTongue() {
-    tongue.state = "idle";
-    tongue.len = 0;
-    tongue.t = 0;
+  function cancelTongue(m) {
+    m.tongue.state = "idle";
+    m.tongue.len = 0;
+    m.tongue.t = 0;
   }
 
-  function updateTongue(dt) {
-    // Buffered start: fires the moment the frog is standing still again. A
-    // fresh press can also cut a retraction short — once you have released,
-    // nothing about the old shot should still be holding you back.
-    // Cutting a retraction short is only allowed once the press has outlived
-    // the swipe window — otherwise a swipe away would snap the old tongue out
-    // of existence instead of letting it reel in behind you.
-    var free = tongue.state === "idle" ||
-               (tongue.state === "retract" && now() - input.downAt >= CFG.swipeGrace);
-    if (free && input.holding && !input.consumed && player.state === "idle") {
-      input.consumed = true;
-      startTongue();
-      sfx.tongueOut();
-    }
+  function updateTongue(m, steer, held, dt) {
+    var t = m.tongue;
+    if (t.state === "idle") return;
 
-    if (tongue.state === "idle") return;
-
-    if (tongue.state === "extend") {
-      tongue.t += dt;
-      // Ease the first fraction of a second so a swipe-cancel never leaves
-      // a visible stub behind.
-      var ramp = clamp(tongue.t / 0.09, 0, 1);
-      tongue.len = Math.min(CFG.tongueMax, tongue.len + CFG.extendSpeed * ramp * dt);
-      if (!input.holding && tongue.t >= CFG.minExtend) {
-        tongue.state = "retract";
-        sfx.tongueBack();
+    if (t.state === "extend") {
+      t.t += dt;
+      // Ease the first fraction of a second so a swipe-cancel never leaves a
+      // visible stub behind.
+      var ramp = clamp(t.t / 0.09, 0, 1);
+      t.len = Math.min(CFG.tongueMax, t.len + CFG.extendSpeed * ramp * dt);
+      if (!held && t.t >= CFG.minExtend) {
+        t.state = "retract";
+        if (m === player) sfx.tongueBack();
       }
     } else {
-      tongue.len -= CFG.retractSpeed * dt;
-      if (tongue.len <= 0.015) { cancelTongue(); return; }
+      t.len -= CFG.retractSpeed * dt;
+      if (t.len <= 0.015) { cancelTongue(m); return; }
     }
 
-    moveTip(dt);
-    sampleCurve();
-    checkTongueHits(dt);
+    moveTip(m, steer, dt);
+    sampleCurve(m);
   }
 
   // The tip is the thing that flies; the tongue is whatever shape connects it
   // back to the mouth. Steering turns the tip's HEADING at a fixed rate rather
   // than shoving it sideways, which is what makes the arc feel driven instead
   // of floaty — and it is a rotation, so it never blows up.
-  function moveTip(dt) {
-    var s = input.steer;
-    var mag = Math.hypot(s.x, s.y);
+  function moveTip(m, steer, dt) {
+    var t = m.tongue;
+    var mag = Math.hypot(steer.x, steer.y);
     if (mag > 1e-4) {
-      var target = Math.atan2(s.y, s.x);
-      var cur = Math.atan2(tongue.dir.y, tongue.dir.x);
+      var target = Math.atan2(steer.y, steer.x);
+      var cur = Math.atan2(t.dir.y, t.dir.x);
       var delta = target - cur;
       while (delta > Math.PI) delta -= Math.PI * 2;
       while (delta < -Math.PI) delta += Math.PI * 2;
       var turn = clamp(delta, -CFG.steerRate * dt, CFG.steerRate * dt);
-      tongue.dir.x = Math.cos(cur + turn);
-      tongue.dir.y = Math.sin(cur + turn);
+      t.dir.x = Math.cos(cur + turn);
+      t.dir.y = Math.sin(cur + turn);
     }
 
-    tongue.prev.x = tongue.tip.x;
-    tongue.prev.y = tongue.tip.y;
+    t.prev.x = t.tip.x;
+    t.prev.y = t.tip.y;
 
     // Travelling while reeling in is what lets you sweep the tongue across a
     // rival on the way home, not just on the way out.
-    var speed = (tongue.state === "extend") ? CFG.extendSpeed : CFG.sweepSpeed;
-    tongue.tip.x += tongue.dir.x * speed * dt;
-    tongue.tip.y += tongue.dir.y * speed * dt;
+    var speed = (t.state === "extend") ? CFG.extendSpeed : CFG.sweepSpeed;
+    t.tip.x += t.dir.x * speed * dt;
+    t.tip.y += t.dir.y * speed * dt;
 
     // The leash: the tip can never be further from the mouth than the length
     // paid out, so shrinking the length physically drags the tip home.
-    var m = mouth(player);
-    var vx = tongue.tip.x - m.x, vy = tongue.tip.y - m.y;
+    var o = mouth(m);
+    var vx = t.tip.x - o.x, vy = t.tip.y - o.y;
     var d = Math.hypot(vx, vy);
-    if (d > tongue.len) {
-      var f = tongue.len / (d || 1);
-      tongue.tip.x = m.x + vx * f;
-      tongue.tip.y = m.y + vy * f;
+    if (d > t.len) {
+      var f = t.len / (d || 1);
+      t.tip.x = o.x + vx * f;
+      t.tip.y = o.y + vy * f;
     }
   }
 
   // Cubic curve from the mouth to the tip: it leaves along the toad's facing
   // and arrives along the tip's heading, so the visible arc always reads as
   // "this is where the tongue is being pushed".
-  function sampleCurve() {
-    var m = mouth(player);
-    var tip = tongue.tip;
-    var cx = tip.x - m.x, cy = tip.y - m.y;
+  function sampleCurve(m) {
+    var t = m.tongue;
+    var o = mouth(m), tip = t.tip;
+    var cx = tip.x - o.x, cy = tip.y - o.y;
     var chord = Math.hypot(cx, cy);
-    var bow = CFG.curveBow * (chord * 0.65 + tongue.len * 0.35);
+    var bow = CFG.curveBow * (chord * 0.65 + t.len * 0.35);
 
     // Cap the outgoing tangent so the whole curve stays inside the leash —
     // otherwise a bowed tongue could quietly out-reach its own maximum.
-    var dot = cx * tongue.dir.x + cy * tongue.dir.y;
-    var disc = dot * dot - chord * chord + tongue.len * tongue.len;
+    var dot = cx * t.dir.x + cy * t.dir.y;
+    var disc = dot * dot - chord * chord + t.len * t.len;
     var limit = dot + Math.sqrt(Math.max(0, disc));
-    var bowIn = Math.min(bow, tongue.len);
+    var bowIn = Math.min(bow, t.len);
     var bowOut = clamp(bow, 0, Math.max(0, limit));
 
-    var p1x = m.x + player.face.x * bowIn, p1y = m.y + player.face.y * bowIn;
-    var p2x = tip.x - tongue.dir.x * bowOut, p2y = tip.y - tongue.dir.y * bowOut;
+    var p1x = o.x + m.face.x * bowIn, p1y = o.y + m.face.y * bowIn;
+    var p2x = tip.x - t.dir.x * bowOut, p2y = tip.y - t.dir.y * bowOut;
 
-    var nodes = tongue.nodes, N = nodes.length;
+    var nodes = t.nodes, N = nodes.length;
     for (var i = 0; i < N; i++) {
-      var t = i / (N - 1);
-      var u = 1 - t;
-      var a = u * u * u, b = 3 * u * u * t, c = 3 * u * t * t, e = t * t * t;
-      nodes[i].x = a * m.x + b * p1x + c * p2x + e * tip.x;
-      nodes[i].y = a * m.y + b * p1y + c * p2y + e * tip.y;
+      var u = i / (N - 1), v = 1 - u;
+      var a = v * v * v, b = 3 * v * v * u, c = 3 * v * u * u, e = u * u * u;
+      nodes[i].x = a * o.x + b * p1x + c * p2x + e * tip.x;
+      nodes[i].y = a * o.y + b * p1y + c * p2y + e * tip.y;
     }
   }
 
-  function tipVelocity(dt) {
-    return {
-      x: (tongue.tip.x - tongue.prev.x) / dt,
-      y: (tongue.tip.y - tongue.prev.y) / dt
-    };
+  function tipVelocity(m, dt) {
+    var t = m.tongue;
+    return { x: (t.tip.x - t.prev.x) / dt, y: (t.tip.y - t.prev.y) / dt };
   }
 
-  function checkTongueHits(dt) {
-    var nodes = tongue.nodes;
-    // The whole outer length of the tongue is live, not just the tip, so a
-    // sweep can catch a rival on the way past.
-    for (var e = 0; e < enemies.length; e++) {
-      var en = enemies[e];
-      if (!en.rider) continue;
-      for (var i = 5; i < nodes.length; i++) {
-        var dx = nodes[i].x - en.x, dy = nodes[i].y - en.y;
-        if (dx * dx + dy * dy < CFG.hitRadius * CFG.hitRadius) {
-          unhorse(en, tipVelocity(dt));
+  // The whole outer length of the tongue is live, not just the tip, so a sweep
+  // can catch a rival on the way past.
+  function checkTongueHits(m, dt) {
+    var t = m.tongue;
+    if (t.state === "idle") return;
+    var others = allMounts();
+    for (var o = 0; o < others.length; o++) {
+      var target = others[o];
+      if (target === m || !target.rider || target.dying) continue;
+      // A freshly respawned knight gets a moment to get their bearings, or
+      // three rivals standing over the spawn will simply farm you.
+      if (target === player && player.safeT > 0) continue;
+      for (var i = 5; i < t.nodes.length; i++) {
+        if (wrapDist(t.nodes[i], target) < CFG.hitRadius) {
+          if (target === player) killPlayer("tongue");
+          else unhorse(target, tipVelocity(m, dt));
           break;
         }
       }
@@ -831,77 +1068,323 @@
 
   function unhorse(mount, vel) {
     mount.rider = false;
+    mount.dead = true;
+    mount.respawnIn = CFG.respawnDelay;
     ko++;
+    throwRider(mount, vel, 250);
+    sfx.hit();
+    setScore();
+  }
+
+  function throwRider(mount, vel, up) {
     var speed = Math.hypot(vel.x, vel.y) || 1;
-    var dirx = vel.x / speed, diry = vel.y / speed;
     var push = clamp(speed * 0.35, 2.2, 6.5);
     debris.push({
       x: mount.x, y: mount.y, z: 26,
-      vx: dirx * push, vy: diry * push, vz: 250,
+      vx: (vel.x / speed) * push, vy: (vel.y / speed) * push, vz: up,
       rot: 0, spin: (Math.random() < 0.5 ? -1 : 1) * (7 + Math.random() * 5),
       armor: mount.armor, trim: mount.trim,
       life: 0, grounded: false
     });
-    sfx.hit();
-    setScore();
+  }
+
+  // =====================================================================
+  // HAZARDS — logs and carts
+  // =====================================================================
+
+  function updateHazards(dt) {
+    var R = bound();
+
+    for (var i = 0; i < lanes.length; i++) {
+      var lane = lanes[i];
+      if (lane.type === "grass") continue;
+      lane.timer -= dt;
+      if (lane.timer <= 0) {
+        var span = lane.len + lane.gap;
+        lane.timer = span / lane.speed;
+        hazards.push({
+          kind: lane.type === "water" ? "log" : "car",
+          x: lane.dir > 0 ? -R - 0.5 - lane.len / 2 : R + 0.5 + lane.len / 2,
+          y: lane.y,
+          len: lane.len,
+          vx: lane.dir * lane.speed,
+          sinking: 0,
+          tint: Math.random()
+        });
+      }
+    }
+
+    for (var h = hazards.length - 1; h >= 0; h--) {
+      var z = hazards[h];
+      z.x += z.vx * dt;
+
+      if (z.sinking > 0) {
+        z.sinking -= dt;
+        if (z.sinking <= 0) hazards.splice(h, 1);
+        continue;
+      }
+
+      var lead = z.x + (z.vx > 0 ? z.len / 2 : -z.len / 2);
+      if (z.kind === "log") {
+        // A log that reaches the end of the level goes under — taking with it
+        // whatever was standing on it. That is the whole point of riding one.
+        if ((z.vx > 0 && lead > R + 0.5) || (z.vx < 0 && lead < -R - 0.5)) {
+          z.sinking = 0.28;
+        }
+      } else if ((z.vx > 0 && z.x - z.len / 2 > R + 2) ||
+                 (z.vx < 0 && z.x + z.len / 2 < -R - 2)) {
+        hazards.splice(h, 1);
+      }
+    }
+  }
+
+  // The log holding a mount up, if there is one. Sinking logs hold nobody.
+  function supportUnder(m) {
+    var row = Math.round(m.y);
+    for (var i = 0; i < hazards.length; i++) {
+      var z = hazards[i];
+      if (z.kind !== "log" || z.sinking > 0 || z.y !== row) continue;
+      if (Math.abs(m.x - z.x) <= z.len / 2) return z;
+    }
+    return null;
+  }
+
+  function carHitting(m) {
+    var row = Math.round(m.y);
+    for (var i = 0; i < hazards.length; i++) {
+      var z = hazards[i];
+      if (z.kind !== "car" || z.y !== row) continue;
+      if (Math.abs(m.x - z.x) <= z.len / 2 + 0.34) return z;
+    }
+    return null;
   }
 
   // =====================================================================
   // MOUNTS
   // =====================================================================
 
+  function startHop(m, dir) {
+    m.face = { x: dir.x, y: dir.y };
+    m.state = "hop";
+    // Whole cells from the nearest cell centre — a mount drifting on a log is
+    // between columns, and hopping snaps it back onto the grid.
+    m.hop = {
+      fx: m.x, fy: m.y,
+      tx: Math.round(m.x) + dir.x * CFG.hopCells,
+      ty: Math.round(m.y) + dir.y * CFG.hopCells,
+      t: 0
+    };
+  }
+
+  function advanceHop(m, dt) {
+    var h = m.hop;
+    h.t += dt;
+    var u = clamp(h.t / CFG.hopTime, 0, 1);
+    var e = u * u * (3 - 2 * u);     // smoothstep along the ground
+    m.x = lerp(h.fx, h.tx, e);
+    m.y = lerp(h.fy, h.ty, e);
+    m.z = Math.sin(u * Math.PI) * CFG.hopHeight;
+    if (u >= 1) {
+      // Landing is where the wrap happens, so the flight itself can run off
+      // the edge while the on-screen copy arrives at the other side.
+      m.x = wrapCoord(h.tx);
+      m.y = wrapCoord(h.ty);
+      m.state = "idle";
+      m.z = 0;
+      m.hop = null;
+      return true;
+    }
+    return false;
+  }
+
+  function driftOnLog(m, dt) {
+    var log = supportUnder(m);
+    if (log) m.x += log.vx * dt;
+    return log;
+  }
+
   function updatePlayer(dt) {
-    var bound = Math.floor(CFG.arena / 2);
+    if (player.safeT > 0) player.safeT -= dt;
+    if (player.dying) {
+      player.dyingT -= dt;
+      if (player.dyingT <= 0) respawnPlayer();
+      return;
+    }
 
     if (player.state === "idle") {
       // Movement is locked only while the tongue is going OUT. Letting go ends
-      // the commitment: you can hop away while it is still reeling in, and the
-      // tongue simply trails from the mouth as you go.
-      if (tongue.state !== "extend" && input.hopQueue) {
-        var dir = input.hopQueue;
+      // the commitment: you can hop away while it is still reeling in.
+      if (player.tongue.state !== "extend" && input.hopQueue) {
+        startHop(player, input.hopQueue);
         input.hopQueue = null;
-        player.face = { x: dir.x, y: dir.y };
-        player.state = "hop";
-        // Whole cells, clamped to whole cells: the frog can never end up
-        // between squares.
-        player.hop = {
-          fx: player.x, fy: player.y,
-          tx: clamp(player.x + dir.x * CFG.hopCells, -bound, bound),
-          ty: clamp(player.y + dir.y * CFG.hopCells, -bound, bound),
-          t: 0
-        };
         sfx.hop();
-      } else if (tongue.state === "extend") {
+      } else if (player.tongue.state === "extend") {
         input.hopQueue = null;
       }
     }
 
     if (player.state === "hop") {
-      var h = player.hop;
-      h.t += dt;
-      var u = clamp(h.t / CFG.hopTime, 0, 1);
-      var e = u * u * (3 - 2 * u);     // smoothstep along the ground
-      player.x = lerp(h.fx, h.tx, e);
-      player.y = lerp(h.fy, h.ty, e);
-      player.z = Math.sin(u * Math.PI) * CFG.hopHeight;
-      if (u >= 1) {
-        player.state = "idle";
-        player.z = 0;
-        player.hop = null;
-        sfx.land();
-      }
+      if (advanceHop(player, dt)) sfx.land();
     } else {
       player.bob += dt * 2.2;
       player.z = 1.2 + Math.sin(player.bob) * 1.2;
+      driftOnLog(player, dt);
     }
+
+    checkPlayerFate();
   }
+
+  function checkPlayerFate() {
+    if (player.dying || player.state === "hop") return;
+    var R = bound();
+
+    // Carried past the end of the level by a log. Note this is NOT a wrap:
+    // drifting off the edge drowns you, only hops come out the other side.
+    if (Math.abs(player.x) > R + 0.5) { killPlayer("water"); return; }
+
+    var lane = laneAt(player.y);
+    if (lane.type === "water" && !supportUnder(player)) { killPlayer("water"); return; }
+    if (carHitting(player)) { killPlayer("car"); return; }
+  }
+
+  function killPlayer(cause) {
+    if (player.dying) return;
+    player.dying = cause;
+    player.dyingT = 1.15;
+    player.rider = false;
+    lost++;
+    cancelTongue(player);
+    input.hopQueue = null;
+    input.consumed = true;
+    if (cause === "water") {
+      sfx.splash();
+      ripples.push({ x: player.x, y: player.y, t: 0 });
+    } else if (cause === "car") {
+      sfx.squash();
+      throwRider(player, { x: 0, y: -1 }, 180);
+    } else {
+      sfx.hit();
+      throwRider(player, { x: 0, y: 1 }, 240);
+    }
+    setScore();
+  }
+
+  function respawnPlayer() {
+    var at = { x: 0, y: spawnRow() };
+    player.x = at.x; player.y = at.y;
+    player.z = 0;
+    player.face = { x: 0, y: -1 };
+    player.state = "idle";
+    player.hop = null;
+    player.rider = true;
+    player.dying = null;
+    player.safeT = CFG.graceTime;
+    cancelTongue(player);
+    sfx.respawn();
+  }
+
+  // --- rival knights ---------------------------------------------------
+  //
+  // Deliberately simple: close the larger gap, and once you are in reach take
+  // a swing. It is enough to make the board feel dangerous without pretending
+  // to be an AI.
 
   function updateEnemies(dt) {
     for (var i = 0; i < enemies.length; i++) {
-      var en = enemies[i];
-      en.bob += dt * (1.6 + i * 0.13);
-      en.z = 1.6 + Math.sin(en.bob) * 1.6;
+      var m = enemies[i];
+      if (!m) continue;
+
+      if (m.dead) {
+        m.respawnIn -= dt;
+        if (m.respawnIn <= 0) spawnEnemy(i);
+        continue;
+      }
+
+      if (m.state === "hop") { advanceHop(m, dt); }
+      else {
+        m.bob += dt * (1.6 + i * 0.13);
+        m.z = 1.6 + Math.sin(m.bob) * 1.6;
+        driftOnLog(m, dt);
+      }
+
+      // Same rules as the player: rivals drown and rivals get run over.
+      if (m.state !== "hop") {
+        var R = bound();
+        var drowned = Math.abs(m.x) > R + 0.5 ||
+                      (laneAt(m.y).type === "water" && !supportUnder(m));
+        if (drowned || carHitting(m)) {
+          if (drowned) { ripples.push({ x: m.x, y: m.y, t: 0 }); sfx.splash(); }
+          else sfx.squash();
+          m.dead = true;
+          m.rider = false;
+          m.respawnIn = CFG.respawnDelay;
+          cancelTongue(m);
+          continue;
+        }
+      }
+
+      thinkEnemy(m, dt);
     }
+  }
+
+  function thinkEnemy(m, dt) {
+    var dx = wrapDelta(player.x - m.x), dy = wrapDelta(player.y - m.y);
+    var dist = Math.hypot(dx, dy);
+    var hunting = !player.dying;
+
+    // --- attacking
+    m.restTimer -= dt;
+    if (m.attacking) {
+      m.holdTimer -= dt;
+      if (m.holdTimer <= 0) m.attacking = false;
+    } else if (hunting && m.tongue.state === "idle" && m.state === "idle" &&
+               m.restTimer <= 0 && dist < CFG.enemyRange) {
+      m.attacking = true;
+      m.holdTimer = CFG.enemyHold;
+      m.restTimer = CFG.enemyHold + CFG.enemyRest;
+      m.face = snapDir(dx, dy * ISO);   // point roughly at the player first
+      startTongue(m);
+      sfx.rivalOut();
+    }
+
+    var steer = { x: 0, y: 0 };
+    if (m.tongue.state !== "idle" && dist > 1e-3) {
+      steer.x = dx / dist; steer.y = dy / dist;
+    }
+    updateTongue(m, steer, m.attacking, dt);
+    checkTongueHits(m, dt);
+
+    // --- moving
+    if (m.state !== "idle" || m.tongue.state === "extend") return;
+    m.hopTimer -= dt;
+    if (m.hopTimer > 0) return;
+    m.hopTimer = CFG.enemyHopEvery * (0.75 + Math.random() * 0.5);
+    if (!hunting || dist < 1.05) return;
+
+    // Close the bigger gap first; if that square would drown it, try the other.
+    var first = Math.abs(dx) >= Math.abs(dy)
+      ? { x: dx < 0 ? -1 : 1, y: 0 }
+      : { x: 0, y: dy < 0 ? -1 : 1 };
+    var second = first.x !== 0
+      ? { x: 0, y: dy < 0 ? -1 : 1 }
+      : { x: dx < 0 ? -1 : 1, y: 0 };
+
+    if (canStandAt(m, first)) startHop(m, first);
+    else if ((Math.abs(dx) > 0.5 || Math.abs(dy) > 0.5) && canStandAt(m, second)) startHop(m, second);
+  }
+
+  // Would a hop in this direction put the rival somewhere it can survive?
+  // Rivals will ride a log if one is there, but they will not jump into open
+  // water. Roads they will happily chance, which is their own business.
+  function canStandAt(m, dir) {
+    var tx = wrapCoord(Math.round(m.x) + dir.x * CFG.hopCells);
+    var ty = wrapCoord(Math.round(m.y) + dir.y * CFG.hopCells);
+    if (laneAt(ty).type !== "water") return true;
+    for (var i = 0; i < hazards.length; i++) {
+      var z = hazards[i];
+      if (z.kind === "log" && !z.sinking && z.y === ty && Math.abs(tx - z.x) <= z.len / 2) return true;
+    }
+    return false;
   }
 
   function updateDebris(dt) {
@@ -914,11 +1397,7 @@
         d.vz -= 900 * dt;
         d.z += d.vz * dt;
         d.rot += d.spin * dt;
-        if (d.z <= 0) {
-          d.z = 0;
-          d.grounded = true;
-          d.spin *= 0.2;
-        }
+        if (d.z <= 0) { d.z = 0; d.grounded = true; d.spin *= 0.2; }
       } else {
         d.vx *= 0.88; d.vy *= 0.88;
         d.x += d.vx * dt; d.y += d.vy * dt;
@@ -927,24 +1406,46 @@
       }
       if (d.life > 3.4) debris.splice(i, 1);
     }
+    for (var r = ripples.length - 1; r >= 0; r--) {
+      ripples[r].t += dt;
+      if (ripples[r].t > 1.1) ripples.splice(r, 1);
+    }
   }
 
   function update(dt) {
+    if (!running) return;
+
     // Keyboard feeds the same intents the touch layer produces.
-    if (!input.holding || input.keys[" "]) {
+    if (input.keys[" "]) {
       var kv = keyVector();
-      if (input.keys[" "]) {
-        if (kv) {
-          // Steering is unprojected, same as a drag: the tongue goes where the
-          // key points on screen.
-          var w = unproj(kv.x, kv.y);
-          var d = Math.hypot(w.x, w.y) || 1;
-          input.steer.x = w.x / d; input.steer.y = w.y / d;
-        } else { input.steer.x = 0; input.steer.y = 0; }
-      }
+      if (kv) {
+        // Steering is unprojected, same as a drag: the tongue goes where the
+        // key points on screen.
+        var w = unproj(kv.x, kv.y);
+        var d = Math.hypot(w.x, w.y) || 1;
+        input.steer.x = w.x / d; input.steer.y = w.y / d;
+      } else { input.steer.x = 0; input.steer.y = 0; }
     }
+
+    updateHazards(dt);
     updatePlayer(dt);
-    updateTongue(dt);
+
+    if (!player.dying) {
+      // Cutting a retraction short is only allowed once the press has outlived
+      // the swipe window — otherwise a swipe away would snap the old tongue out
+      // of existence instead of letting it reel in behind you.
+      var t = player.tongue;
+      var free = t.state === "idle" ||
+                 (t.state === "retract" && now() - input.downAt >= CFG.swipeGrace);
+      if (free && input.holding && !input.consumed && player.state === "idle") {
+        input.consumed = true;
+        startTongue(player);
+        sfx.tongueOut();
+      }
+      updateTongue(player, input.steer, input.holding, dt);
+      checkTongueHits(player, dt);
+    }
+
     updateEnemies(dt);
     updateDebris(dt);
   }
@@ -953,7 +1454,7 @@
   // RENDER
   // =====================================================================
 
-  var canvas, ctx, viewW = 0, viewH = 0, dpr = 1, scale = 1;
+  var canvas, ctx, viewW = 0, viewH = 0, dpr = 1, scale = 1, clockT = 0;
 
   function resize() {
     dpr = Math.min(window.devicePixelRatio || 1, 2.5);
@@ -970,67 +1471,73 @@
     scale = clamp(Math.min(viewW / wantW, viewH / wantH), 0.3, 2.2);
   }
 
-  // Follow the frog, but never past the edge of the board: on an axis where
-  // the whole arena already fits, the camera just centres and stays put. On a
-  // phone that means it tracks sideways and never drifts off the board.
-  function cameraAt() {
-    var p = proj(player.x, player.y, 0);
-    var halfW = viewW / (2 * scale), halfH = viewH / (2 * scale);
-    var boardW = (CFG.arena + 1) * CFG.cell * 0.5;
-    var boardH = (CFG.arena + 1) * CFG.cell * ISO * 0.5 + CFG.cell * LIP;
-    var limX = Math.max(0, boardW - halfW);
-    var limY = Math.max(0, boardH - halfH);
-    return { x: clamp(p.x, -limX, limX), y: clamp(p.y, -limY, limY) };
-  }
-
   function render() {
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = "#060e10";
     ctx.fillRect(0, 0, viewW, viewH);
+    if (!lanes) return;
 
-    var c = cameraAt();
     ctx.save();
-    ctx.translate(viewW * 0.5, viewH * 0.52);
+    ctx.translate(viewW * 0.5, viewH * 0.5);
     ctx.scale(scale, scale);
-    ctx.translate(-c.x, -c.y);
 
     drawArena();
+    drawRipples();
+    for (var h = 0; h < hazards.length; h++) if (hazards[h].kind === "log") drawLog(hazards[h]);
 
     // Rows run across the screen, so depth is just the row: draw back to front.
     var order = [];
-    for (var i = 0; i < enemies.length; i++) order.push({ d: enemies[i].y, m: enemies[i], kind: "mount" });
+    for (var i = 0; i < enemies.length; i++) {
+      if (enemies[i] && !enemies[i].dead) order.push({ d: enemies[i].y, m: enemies[i], kind: "mount" });
+    }
     order.push({ d: player.y, m: player, kind: "mount" });
+    for (var c = 0; c < hazards.length; c++) {
+      if (hazards[c].kind === "car") order.push({ d: hazards[c].y, m: hazards[c], kind: "car" });
+    }
     for (var j = 0; j < debris.length; j++) order.push({ d: debris[j].y, m: debris[j], kind: "debris" });
     order.sort(function (a, b) { return a.d - b.d; });
 
     for (var n = 0; n < order.length; n++) {
-      if (order[n].kind === "mount") drawMount(order[n].m);
-      else drawFlyingKnight(order[n].m);
+      var it = order[n];
+      // A drowned toad goes under with its knight; one whose rider was knocked
+      // off is still standing there, riderless and rather confused.
+      if (it.kind === "mount") { if (it.m.dying !== "water") drawMount(it.m); }
+      else if (it.kind === "car") drawCar(it.m);
+      else drawFlyingKnight(it.m);
     }
 
-    drawTongue();
-    ctx.restore();
+    var mounts = allMounts();
+    for (var t = 0; t < mounts.length; t++) drawTongue(mounts[t]);
 
+    ctx.restore();
     drawVignette();
   }
 
   // One rectangle per cell — squashed by ISO because the camera is tilted
-  // back. A cell centre sits at integer world coords, so its square runs from
-  // -0.5 to +0.5 and the frog always lands dead centre.
+  // back. Water and road lanes run past the board edge on both sides, so the
+  // traffic reads as coming from somewhere.
   function drawArena() {
-    var R = Math.floor(CFG.arena / 2);
+    var R = bound();
     var W = CFG.cell, H = CFG.cell * ISO;
     var left = (-R - 0.5) * W, top = (-R - 0.5) * H;
-    var wide = (2 * R + 1) * W, tall = (2 * R + 1) * H;
+    var wide = CFG.arena * W, tall = CFG.arena * H;
+    var over = W * 2.4;
 
-    // Ground beyond the board, and a lip of it behind the far edge.
     ctx.fillStyle = "#16292b";
-    ctx.fillRect(left - W * 0.7, top - H * 1.2, wide + W * 1.4, tall + H * 2.4);
+    ctx.fillRect(left - over, top - H * 1.2, wide + over * 2, tall + H * 2.4);
 
-    for (var gx = -R; gx <= R; gx++) {
-      for (var gy = -R; gy <= R; gy++) {
-        ctx.fillStyle = ((gx + gy) & 1) ? "#2b5f40" : "#356e45";
-        ctx.fillRect((gx - 0.5) * W, (gy - 0.5) * H, W + 0.5, H + 0.5);
+    for (var gy = -R; gy <= R; gy++) {
+      var lane = lanes[gy + R];
+      var ry = (gy - 0.5) * H;
+      if (lane.type === "grass") {
+        for (var gx = -R; gx <= R; gx++) {
+          ctx.fillStyle = ((gx + gy) & 1) ? "#2b5f40" : "#356e45";
+          ctx.fillRect((gx - 0.5) * W, ry, W + 0.5, H + 0.5);
+        }
+      } else if (lane.type === "water") {
+        drawWaterLane(lane, left - over, ry, wide + over * 2, H);
+      } else {
+        drawRoadLane(lane, gy, left - over, ry, wide + over * 2, H);
       }
     }
 
@@ -1046,6 +1553,133 @@
     ctx.strokeStyle = "rgba(233,239,228,0.16)";
     ctx.lineWidth = 2;
     ctx.strokeRect(left, top, wide, tall);
+  }
+
+  function drawWaterLane(lane, x, y, w, h) {
+    var g = ctx.createLinearGradient(0, y, 0, y + h);
+    g.addColorStop(0, "#1c5372");
+    g.addColorStop(0.55, "#2f7fa8");
+    g.addColorStop(1, "#1a4a66");
+    ctx.fillStyle = g;
+    ctx.fillRect(x, y, w, h);
+
+    // Current: a few streaks sliding the way the water goes.
+    ctx.fillStyle = "rgba(200,236,247,0.16)";
+    var streak = CFG.cell * 0.9;
+    var drift = (clockT * lane.speed * CFG.cell * 0.55) * lane.dir;
+    for (var i = -3; i < CFG.arena + 4; i++) {
+      var sx = x + ((i * CFG.cell * 1.7 + drift) % (w + streak) + w + streak) % (w + streak) - streak;
+      ctx.fillRect(sx, y + h * (0.28 + 0.34 * ((i % 3) / 3)), streak, Math.max(1, h * 0.09));
+    }
+  }
+
+  function drawRoadLane(lane, gy, x, y, w, h) {
+    ctx.fillStyle = "#43484f";
+    ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = "rgba(0,0,0,0.16)";
+    ctx.fillRect(x, y, w, h * 0.14);
+
+    // A two-lane road gets one divider on the shared edge; a lone lane gets a
+    // centre line. The second row of a pair gets neither, or the road ends up
+    // wearing two sets of markings.
+    var R = bound();
+    var below = lanes[gy + R + 1], above = lanes[gy + R - 1];
+    var dash = CFG.cell * 0.5, dy, colour;
+    if (below && below.type === "road") { dy = y + h; colour = "rgba(228,200,120,0.8)"; }
+    else if (above && above.type === "road") return;
+    else { dy = y + h * 0.5; colour = "rgba(233,239,228,0.35)"; }
+
+    ctx.fillStyle = colour;
+    for (var sx = x; sx < x + w; sx += dash * 2) ctx.fillRect(sx, dy - 1.5, dash, 3);
+  }
+
+  function drawRipples() {
+    for (var i = 0; i < ripples.length; i++) {
+      var r = ripples[i];
+      var p = proj(r.x, r.y, 0);
+      var u = r.t / 1.1;
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.scale(1, ISO);
+      ctx.strokeStyle = "rgba(214,240,250," + (0.55 * (1 - u)) + ")";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(0, 0, 8 + u * 34, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+  }
+
+  function drawLog(z) {
+    var p = proj(z.x, z.y, 0);
+    var w = z.len * CFG.cell, h = CFG.cell * ISO * 0.72;
+    ctx.save();
+    ctx.globalAlpha = z.sinking > 0 ? clamp(z.sinking / 0.28, 0, 1) : 1;
+    ctx.translate(p.x, p.y + (z.sinking > 0 ? (1 - z.sinking / 0.28) * 5 : 0));
+
+    var g = ctx.createLinearGradient(0, -h / 2, 0, h / 2);
+    g.addColorStop(0, "#8a6136");
+    g.addColorStop(0.5, "#6d4a28");
+    g.addColorStop(1, "#4b331c");
+    ctx.fillStyle = g;
+    roundRect(-w / 2, -h / 2, w, h, h * 0.42);
+    ctx.fill();
+
+    // bark grain
+    ctx.strokeStyle = "rgba(38,24,12,0.4)";
+    ctx.lineWidth = 1.4;
+    for (var i = 1; i <= 2; i++) {
+      ctx.beginPath();
+      ctx.moveTo(-w / 2 + h * 0.5, -h / 2 + (h * i) / 3);
+      ctx.lineTo(w / 2 - h * 0.5, -h / 2 + (h * i) / 3);
+      ctx.stroke();
+    }
+    // cut ends
+    ctx.fillStyle = "#a3784a";
+    ctx.beginPath();
+    ctx.ellipse(-w / 2 + h * 0.16, 0, h * 0.16, h * 0.44, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(w / 2 - h * 0.16, 0, h * 0.16, h * 0.44, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
+
+  function drawCar(z) {
+    var p = proj(z.x, z.y, 0);
+    var w = z.len * CFG.cell, h = CFG.cell * ISO * 0.86;
+    var hue = Math.floor(z.tint * 5);
+    var body = ["#b8452f", "#2f6fb8", "#c9a227", "#6b4bb0", "#3f8f5a"][hue];
+    ctx.save();
+    ctx.translate(p.x, p.y);
+
+    ctx.fillStyle = "rgba(4,10,10,0.35)";
+    ctx.beginPath();
+    ctx.ellipse(0, h * 0.42, w * 0.48, h * 0.22, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.fillStyle = "#181c1f";
+    roundRect(-w * 0.42, h * 0.1, w * 0.84, h * 0.36, h * 0.16);
+    ctx.fill();
+
+    ctx.fillStyle = body;
+    roundRect(-w / 2, -h / 2, w, h * 0.8, h * 0.22);
+    ctx.fill();
+    ctx.fillStyle = shade(body, 1.25);
+    roundRect(-w * 0.26, -h * 0.44, w * 0.5, h * 0.4, h * 0.14);
+    ctx.fill();
+    ctx.fillStyle = "rgba(220,240,250,0.55)";
+    roundRect(-w * 0.2, -h * 0.38, w * 0.38, h * 0.26, h * 0.1);
+    ctx.fill();
+
+    // lamps at the leading end
+    ctx.fillStyle = "#ffe9a8";
+    var lx = z.vx > 0 ? w / 2 - h * 0.16 : -w / 2 + h * 0.16;
+    ctx.beginPath();
+    ctx.ellipse(lx, -h * 0.02, h * 0.11, h * 0.16, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
   }
 
   // Shadow stays on the ground while the sprite lifts away from it — the gap
@@ -1064,8 +1698,17 @@
   }
 
   function drawMount(m) {
-    drawShadow(m.x, m.y, m.z, 21);
-    var p = proj(m.x, m.y, m.z);
+    // Pulse while the respawn grace is running, so "they cannot touch me yet"
+    // is something you can see rather than something you infer.
+    var fade = m.safeT > 0 ? 0.45 + 0.4 * (0.5 + 0.5 * Math.sin(clockT * 22)) : 1;
+    if (fade < 1) ctx.globalAlpha = fade;
+    eachWrap(m.x, m.y, function (wx, wy) { drawMountAt(m, wx, wy); });
+    ctx.globalAlpha = 1;
+  }
+
+  function drawMountAt(m, wx, wy) {
+    drawShadow(wx, wy, m.z, 21);
+    var p = proj(wx, wy, m.z);
     var f = projDir(m.face.x, m.face.y);
 
     ctx.save();
@@ -1088,11 +1731,9 @@
     ctx.fill();
     ctx.stroke();
 
-    // belly sheen
     ctx.fillStyle = "rgba(190,232,170,0.18)";
     ellipse(-3, -19, 12, 7);
 
-    // front feet, splayed toward the camera so the toad has a front
     ctx.fillStyle = "#357a44";
     ellipse(-13, -1, 7, 4);
     ellipse(13, -1, 7, 4);
@@ -1112,13 +1753,8 @@
       var perp = projDir(-m.face.y, m.face.x);
       var eyes = [];
       for (var s = -1; s <= 1; s += 2) {
-        eyes.push({
-          x: f.x * 11 + perp.x * 7 * s,
-          y: -31 + f.y * 4 + perp.y * 7 * s
-        });
+        eyes.push({ x: f.x * 11 + perp.x * 7 * s, y: -31 + f.y * 4 + perp.y * 7 * s });
       }
-      // Higher on screen is further away: draw that one first and a shade
-      // smaller, or a side-on toad ends up with two identical floating eyes.
       eyes.sort(function (a, b) { return a.y - b.y; });
       // Hopping away from the camera you are looking at the back of its head,
       // so the eyes become plain domes and the mouth is out of sight.
@@ -1142,7 +1778,6 @@
       }
 
       if (!away) {
-        // mouth line, where the tongue leaves
         ctx.strokeStyle = "rgba(15,32,26,0.55)";
         ctx.lineWidth = 1.6;
         ctx.beginPath();
@@ -1162,12 +1797,10 @@
     ctx.restore();
   }
 
-  // Knight drawn in local space; f is the facing in screen units.
   function drawKnight(ox, oy, f, armor, trim) {
     ctx.save();
     ctx.translate(ox - f.x * 2, oy);
 
-    // plume streams away from the facing
     ctx.strokeStyle = trim;
     ctx.lineWidth = 3;
     ctx.lineCap = "round";
@@ -1178,7 +1811,6 @@
       ctx.stroke();
     }
 
-    // torso — narrow shoulders, flared skirt, so it reads as a seated figure
     ctx.fillStyle = armor;
     ctx.beginPath();
     ctx.moveTo(-9, 3);
@@ -1187,7 +1819,6 @@
     ctx.closePath();
     ctx.fill();
 
-    // sash
     ctx.fillStyle = trim;
     ctx.beginPath();
     ctx.moveTo(-8.4, -2); ctx.lineTo(8.4, -5);
@@ -1195,12 +1826,10 @@
     ctx.closePath();
     ctx.fill();
 
-    // pauldrons
     ctx.fillStyle = shade(armor, 1.3);
     circle(-8.5, -9, 4.6);
     circle(8.5, -9, 4.6);
 
-    // gorget + helm
     ctx.fillStyle = shade(armor, 0.7);
     ellipse(0, -14, 5.5, 2.6);
     ctx.fillStyle = shade(armor, 1.45);
@@ -1211,7 +1840,6 @@
     ctx.closePath();
     ctx.fill();
 
-    // visor slit, shifted with the facing so you can read where he is looking
     ctx.fillStyle = "#0b1614";
     ctx.fillRect(f.x * 2.2 - 5.5, -20, 11, 3.2);
     ctx.restore();
@@ -1229,13 +1857,20 @@
     ctx.globalAlpha = 1;
   }
 
-  // The tongue: a tapered ribbon built from the rope's node positions.
-  function drawTongue() {
-    if (tongue.state === "idle" || tongue.len < 0.05) return;
+  // The tongue: a tapered ribbon built from the sampled curve.
+  function drawTongue(m) {
+    var t = m.tongue;
+    if (t.state === "idle" || t.len < 0.05) return;
+    eachWrap(m.x, m.y, function (wx, wy) {
+      drawTongueAt(m, wx - m.x, wy - m.y);
+    });
+  }
 
-    var nodes = tongue.nodes, N = nodes.length;
+  function drawTongueAt(m, offX, offY) {
+    var t = m.tongue;
+    var nodes = t.nodes, N = nodes.length;
     var pts = new Array(N);
-    for (var i = 0; i < N; i++) pts[i] = proj(nodes[i].x, nodes[i].y, TONGUE_Z);
+    for (var i = 0; i < N; i++) pts[i] = proj(nodes[i].x + offX, nodes[i].y + offY, TONGUE_Z);
 
     var left = [], right = [];
     for (var j = 0; j < N; j++) {
@@ -1263,16 +1898,13 @@
     ctx.lineWidth = 1.6;
     ctx.stroke();
 
-    // sticky tip
     var tip = pts[N - 1];
     ctx.fillStyle = "#f2879c";
     circle(tip.x, tip.y, 5.4);
     ctx.fillStyle = "rgba(255,255,255,0.45)";
     circle(tip.x - 1.5, tip.y - 1.7, 1.8);
 
-    // its shadow on the ground, so reach reads clearly under the tilt
-    var tn = nodes[N - 1];
-    drawShadow(tn.x, tn.y, TONGUE_Z, 4.5);
+    drawShadow(nodes[N - 1].x + offX, nodes[N - 1].y + offY, TONGUE_Z, 4.5);
   }
 
   function drawVignette() {
@@ -1297,6 +1929,16 @@
     ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.fill();
   }
+  function roundRect(x, y, w, h, r) {
+    r = Math.min(r, w / 2, h / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
   function shade(hex, mul) {
     var n = parseInt(hex.slice(1), 16);
     var r = clamp(Math.round(((n >> 16) & 255) * mul), 0, 255);
@@ -1306,18 +1948,25 @@
   }
 
   // =====================================================================
-  // HUD
+  // HUD + MENU
   // =====================================================================
 
-  var elState, elLamp, elKO, elHint, hintTimer = null;
+  var elState, elLamp, elKO, elLost, elHint, elLevelName, elMenu, hintTimer = null;
 
-  function setScore() { if (elKO) elKO.textContent = String(ko); }
+  function setScore() {
+    if (elKO) elKO.textContent = String(ko);
+    if (elLost) elLost.textContent = String(lost);
+  }
 
   function syncHud() {
-    if (!elState) return;
+    if (!elState || !player) return;
     var label, cls;
-    if (tongue.state === "extend") { label = "EXTEND " + tongue.len.toFixed(1); cls = "extend"; }
-    else if (tongue.state === "retract") { label = "RETRACT " + tongue.len.toFixed(1); cls = "retract"; }
+    var t = player.tongue;
+    if (player.dying) {
+      label = player.dying === "water" ? "DROWNED" : player.dying === "car" ? "RUN DOWN" : "UNHORSED";
+      cls = "dead";
+    } else if (t.state === "extend") { label = "EXTEND " + t.len.toFixed(1); cls = "extend"; }
+    else if (t.state === "retract") { label = "RETRACT " + t.len.toFixed(1); cls = "retract"; }
     else if (player.state === "hop") { label = "HOP"; cls = "hop"; }
     else { label = "IDLE"; cls = "idle"; }
     if (elState.textContent !== label) elState.textContent = label;
@@ -1326,14 +1975,49 @@
 
   function fadeHint() {
     if (!elHint || hintTimer) return;
-    hintTimer = setTimeout(function () { elHint.classList.add("away"); }, 2600);
+    hintTimer = setTimeout(function () { elHint.classList.add("away"); }, 3400);
+  }
+
+  function buildMenu(host) {
+    host.innerHTML = "";
+    LEVELS.forEach(function (lv, i) {
+      var card = document.createElement("button");
+      card.className = "level";
+      card.type = "button";
+
+      var name = document.createElement("strong");
+      name.textContent = lv.name;
+
+      var strip = document.createElement("div");
+      strip.className = "strip";
+      lv.lanes().forEach(function (lane) {
+        var bar = document.createElement("i");
+        bar.className = lane.type;
+        strip.appendChild(bar);
+      });
+
+      var blurb = document.createElement("em");
+      blurb.textContent = lv.blurb;
+
+      card.appendChild(name);
+      card.appendChild(strip);
+      card.appendChild(blurb);
+      card.addEventListener("click", function () {
+        audioStart();
+        loadLevel(i);
+        elLevelName.textContent = lv.name;
+        elMenu.hidden = true;
+        setScore();
+      });
+      host.appendChild(card);
+    });
   }
 
   // =====================================================================
   // TUNING DRAWER
   // =====================================================================
 
-  var STORE_KEY = "frogjoust.tuning.v1";
+  var STORE_KEY = "frogjoust.tuning.v2";
 
   function loadTuning() {
     try {
@@ -1380,6 +2064,7 @@
         CFG[t.key] = parseFloat(input.value);
         show();
         saveTuning();
+        if (t.key === "enemyCount") syncEnemyCount();
       });
       t._sync = function () { input.value = CFG[t.key]; show(); };
       show();
@@ -1389,6 +2074,12 @@
       wrap.appendChild(input);
       host.appendChild(wrap);
     });
+  }
+
+  function syncEnemyCount() {
+    if (!enemies) return;
+    while (enemies.length > CFG.enemyCount) enemies.pop();
+    while (enemies.length < CFG.enemyCount) spawnEnemy(enemies.length);
   }
 
   // =====================================================================
@@ -1401,7 +2092,10 @@
     elState = document.getElementById("fj-state");
     elLamp = document.getElementById("fj-lamp");
     elKO = document.getElementById("fj-ko");
+    elLost = document.getElementById("fj-lost");
     elHint = document.getElementById("fj-hint");
+    elLevelName = document.getElementById("fj-levelname");
+    elMenu = document.getElementById("fj-levelmenu");
 
     window.addEventListener("resize", resize);
     if (window.visualViewport) window.visualViewport.addEventListener("resize", resize);
@@ -1438,12 +2132,12 @@
       if (key === " ") {
         input.holding = true;
         input.consumed = false;
+        input.downAt = now();
         fadeHint();
         e.preventDefault();
       } else if (KEY_VEC[key]) {
         if (!input.keys[" "]) {
-          var v = KEY_VEC[key];
-          requestHop({ x: v[0], y: v[1] });
+          requestHop({ x: KEY_VEC[key][0], y: KEY_VEC[key][1] });
           fadeHint();
         }
         e.preventDefault();
@@ -1457,6 +2151,8 @@
 
     var drawer = document.getElementById("fj-drawer");
     buildTuners(document.getElementById("fj-tuners"));
+    buildMenu(document.getElementById("fj-levellist"));
+
     document.getElementById("fj-tune").addEventListener("click", function () {
       drawer.classList.toggle("open");
     });
@@ -1466,10 +2162,11 @@
     document.getElementById("fj-defaults").addEventListener("click", function () {
       TUNABLE.forEach(function (t) { CFG[t.key] = DEFAULTS[t.key]; t._sync(); });
       saveTuning();
+      syncEnemyCount();
     });
-    document.getElementById("fj-reset").addEventListener("click", function () {
-      reset();
-      setScore();
+    document.getElementById("fj-menu").addEventListener("click", function () {
+      elMenu.hidden = false;
+      drawer.classList.remove("open");
     });
 
     var soundBtn = document.getElementById("fj-sound");
@@ -1481,7 +2178,7 @@
     syncSound();
     soundBtn.addEventListener("click", function () {
       audio.muted = !audio.muted;
-      if (!audio.muted) { audioStart(); sfx.hop(); }   // confirm it is back
+      if (!audio.muted) { audioStart(); sfx.hop(); }
       try { localStorage.setItem("frogjoust.muted", audio.muted ? "1" : "0"); } catch (e) {}
       syncSound();
     });
@@ -1494,6 +2191,7 @@
     var dt = Math.min((ts - last) / 1000, 0.1);
     last = ts;
     acc += dt;
+    clockT += dt;
     var guard = 0;
     while (acc >= FIXED_DT && guard++ < 12) {
       update(FIXED_DT);
@@ -1505,19 +2203,30 @@
   }
 
   loadTuning();
-  reset();
+  loadLevel(0);
+  running = false;   // the menu starts the first round
 
   // Headless harness (tests) drives update() itself and never touches the DOM.
   if (typeof globalThis !== "undefined" && globalThis.__FJ_HEADLESS__) {
     globalThis.FrogJoust = {
-      CFG: CFG, update: update, reset: reset, input: input,
-      state: function () { return { player: player, tongue: tongue, enemies: enemies, debris: debris, ko: ko }; },
+      CFG: CFG, LEVELS: LEVELS, ISO: ISO,
+      update: update, loadLevel: loadLevel, input: input,
+      state: function () {
+        return {
+          player: player, enemies: enemies, hazards: hazards, lanes: lanes,
+          debris: debris, level: level, ko: ko, lost: lost
+        };
+      },
       startTongue: startTongue, requestHop: requestHop, snapDir: snapDir,
-      unproj: unproj, proj: proj, ISO: ISO
+      unproj: unproj, proj: proj, wrapCoord: wrapCoord, wrapDelta: wrapDelta,
+      supportUnder: supportUnder, laneAt: laneAt,
+      run: function (on) { running = on; }
     };
+    running = true;
   } else {
     bindDom();
     setScore();
+    elMenu.hidden = false;
     requestAnimationFrame(frame);
   }
 })();

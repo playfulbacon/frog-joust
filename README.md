@@ -10,12 +10,13 @@ before any of it gets built in Unity.
 ## Play it
 
 Open `index.html`. It needs no build step and no server — a `file://` path
-works, as does any static host.
+works, as does any static host. Pick a level from the menu.
 
 The camera is tilted back over a checkerboard, one square per cell, with the
 board squared up to the screen rather than stood on its corner: rows run across,
 columns run up and down. Swipe up to go forward, down to come back, left and
-right to go left and right.
+right to go left and right. **The edges wrap** — hop off one side and you come
+back on the other.
 
 | Input | Touch | Keyboard |
 | --- | --- | --- |
@@ -24,19 +25,29 @@ right to go left and right.
 | Steer the tongue | Drag while holding | Arrows while holding Space |
 | Reel it in | Release | Release Space |
 
-Sound is synthesised at runtime — no files — and starts on your first touch,
-because browsers will not open an audio device before a gesture. **Sound**
-toggles it and the choice sticks.
+**Tune** opens sliders for every number that affects feel — including how many
+rivals there are and how bold they get — and they persist in local storage.
+**Defaults** puts them back. Those are the values to carry into Unity once
+something feels right. Sound is synthesised at runtime, so there is nothing to
+load; it starts on your first touch because browsers will not open an audio
+device before a gesture.
 
-**Tune** opens sliders for every number that affects feel; they persist in
-local storage, and **Defaults** puts them back. Those are the values to carry
-into Unity once something feels right.
+## Levels
+
+| | |
+| --- | --- |
+| **Millrace** | One stream through the middle. |
+| **Twin Races** | Two streams running opposite ways, dry ground between. |
+| **The King's Road** | A two-lane road, carts in both directions. |
+| **Toll Crossing** | Stream, road, stream. |
+
+Each is a stack of lanes — grass, water or road — and the water and road lanes
+carry their own traffic. Adding one is a few lines in `LEVELS`.
 
 ## The rules being tested
 
 - A hop is a discrete, committed move — a whole number of cells over a fixed
   time, in one of four directions, Frogger-style rather than analogue walking.
-  The frog is always exactly on a cell centre.
 - **Holding** shoots the tongue; **releasing** reels it in. A quick tap still
   produces a full jab (`minExtend`).
 - The frog is pinned only while the tongue is going **out**. That is the
@@ -46,6 +57,10 @@ into Unity once something feels right.
 - While the tongue is out, the direction input steers **the tongue** instead.
 - The tongue is live along its outer length, not just at the tip, so sweeping
   it across a rival on the way home counts.
+- Water drowns you and carts flatten you. A log carries you while you stand on
+  it, and **a log that reaches the end of the level goes under**, taking you
+  with it unless something else is beneath you by then.
+- Rival knights carry exactly the same tongue you do, and will use it.
 
 ## How the tongue works
 
@@ -70,19 +85,15 @@ Instead:
    out-reaches its own maximum. That curve is the hit volume and the render
    path both, so what you see is exactly what hits.
 
-In Unity this is a tip transform plus a LineRenderer fed by the same sampled
-curve. Nothing here needs a third axis: all gameplay is on the ground plane and
-`z` is cosmetic — under a straight-down camera it is read as sprite scale plus a
-shrinking shadow rather than as a screen offset, which is what a hop actually
-looks like from above.
+Every mount owns one, player and rival alike. The only difference is where the
+steering comes from: your finger, or the direction of you.
 
 ## Porting notes
 
 - All gameplay units are **cells and seconds**. Pixels appear only in `proj` /
   `unproj`. `ISO` is the foreshortening — a cell is `cell` wide and
   `cell * ISO` tall — and it is the only thing separating this from a plain
-  top-down view. `0.5` is a true 2:1 board seen square-on; higher is a steeper
-  camera. In Unity this is the camera's pitch, nothing more.
+  top-down view. In Unity it is the camera's pitch, nothing more.
 - **Hops snap the raw screen delta; steering unprojects it.** Those are
   deliberately different. A hop should go where the finger pointed on screen,
   so its boundary between directions sits at a true 45°; unprojecting first
@@ -91,12 +102,24 @@ looks like from above.
   on-screen angle — the only angle the player can see.
 - The snap is **by comparison, not by rounding an angle** — the result is
   exactly `±1` and `0`, so repeated hops can never accumulate floating-point
-  drift off the cell centres. Hop targets are whole cells and the clamp to the
-  arena edge is a whole cell too.
+  drift off the cell centres.
+- **Wrapping applies to hops, not to drifting.** Hop off an edge and you come
+  out the other side; get carried off one by a log and you drown. That
+  asymmetry is deliberate — it is what makes riding a log to the end a real
+  risk rather than a free ride round the board.
+- A hop's landing is where the wrap happens, so the flight itself runs off the
+  edge while an on-screen copy arrives at the other side. Copies are drawn only
+  when a mount is genuinely past the last cell; ghosting anything merely *near*
+  an edge leaves duplicate frogs parked outside the board.
+- A mount riding a log is between columns. Hopping targets
+  `round(x) + dir * hopCells`, which snaps it back onto the grid.
+- Everything in a lane moves at the same speed, so a trailing log can never
+  catch up to a leading one. The only way to survive your log sinking is to be
+  standing where two logs **overlap** — sizing `gap` against the log lengths is
+  what decides whether that is ever possible.
 - The whole arena is framed on screen. Squared up, the board is much wider than
   it is tall, so the fit has to measure both axes — sizing off the smaller
-  viewport dimension alone over-zooms and clips the rivals at the edges. The
-  camera still follows and stops at the board edge if you shrink the view.
+  viewport dimension alone over-zooms and clips the rivals at the edges.
 - The toad shows the back of its head when it hops away from the camera, and
   whether the rider draws in front of the head depends on the facing. Get that
   backwards and the knight eats one of the toad's eyes.
@@ -104,19 +127,27 @@ looks like from above.
   the finger travels past `swipeThreshold` within `swipeGrace` ms it is
   retroactively a swipe and the tongue is cancelled. Extension eases in over
   the first 90 ms so a cancelled tongue never shows a visible stub.
-- A hold that arrives mid-hop is buffered and fires on landing, so the control
-  never feels like it ate an input.
-- A press can only cut a retraction short *after* the swipe window has passed.
-  Otherwise swiping away would blink the old tongue out of existence instead of
-  letting it reel in behind you — and a swipe only ever cancels a tongue that
-  the same press started.
+- A press can only cut a retraction short *after* the swipe window has passed,
+  and a swipe only ever cancels a tongue that the same press started. Without
+  both rules, swiping away blinks the old tongue out of existence instead of
+  letting it reel in behind you.
+
+## Rival knights
+
+Deliberately simple: close the larger gap, and once you are in reach take a
+swing. They will ride a log if one is there but will not jump into open water;
+roads they will chance, and the carts do get them. They drown and they get run
+over on exactly the same terms you do.
+
+You get `graceTime` seconds of immunity after respawning — the toad pulses
+while it lasts — because three rivals standing over the spawn will otherwise
+simply farm you.
 
 ## Sound
 
-Five placeholder voices, synthesised from oscillators and filtered noise rather
-than sampled: nothing to load, and each one is a handful of numbers you can
-argue with in `sfx`. Hop and land, the tongue going out and coming back, and
-the hit — a noise thump under two detuned squares for the armour ringing.
+Placeholder voices, synthesised from oscillators and filtered noise rather than
+sampled: nothing to load, and each is a handful of numbers you can argue with
+in `sfx`. Hop, land, tongue out and back, the hit, a splash, a squash.
 
 They are deliberately crude. They exist to answer "does this action want a
 sound, and roughly what shape", not to be the game's audio.
@@ -128,9 +159,12 @@ node test/headless.js
 ```
 
 Runs the simulation with no browser: it pulls the script out of `index.html`,
-steps it at a fixed timestep, and checks that swipes resolve to exactly four
-unit cardinals, that a lap around the board leaves the frog with zero drift off
-the cell centres, that it stops at the arena edge, that movement stays locked
-for the whole tongue cycle, that no part of the curve out-reaches `tongueMax`,
-that an unsteered tongue is straight and a steered one actually bows, and that a
-hit unhorses exactly one rider.
+steps it at a fixed timestep, and checks the projection round-trips, that
+swipes resolve to exactly four unit cardinals, that a walk leaves the frog with
+zero drift off the cell centres, that hops wrap in both axes and are genuinely
+out of bounds mid-flight, that open water drowns you and a log does not, that
+riding a log to the end drowns you unless a second log overlaps, that carts
+kill, that traffic stays bounded over a minute, that no part of the tongue
+curve out-reaches `tongueMax`, that movement frees up the instant you release,
+that a rival closes and eventually unhorses you, and that every level loads and
+starts you somewhere dry.

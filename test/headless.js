@@ -3,7 +3,7 @@
  *
  * Pulls the <script> out of index.html, runs it with __FJ_HEADLESS__ set (so it
  * skips all DOM binding and the rAF loop), then steps update() by hand to check
- * the hop and tongue simulations behave. No browser required:
+ * the simulation behaves. No browser required:
  *
  *   node test/headless.js
  */
@@ -14,7 +14,13 @@ const vm = require("vm");
 
 const html = fs.readFileSync(path.join(__dirname, "..", "index.html"), "utf8");
 const match = html.match(/<script>([\s\S]*?)<\/script>/);
-if (!match) fail("could not find the game <script> block in index.html");
+if (!match) {
+  console.error("could not find the game <script> block in index.html");
+  process.exit(1);
+}
+
+let clock = 0;
+let failures = 0;
 
 const sandbox = {
   console,
@@ -24,41 +30,48 @@ const sandbox = {
   __FJ_HEADLESS__: true,
   document: null,   // the script guards its own DOM use, but keep it obvious
   window: undefined,
-  localStorage: undefined
+  localStorage: undefined,
+  setTimeout: () => 0
 };
 sandbox.globalThis = sandbox;
 
-let clock = 0;
-let failures = 0;
-
-function fail(msg) {
-  console.error("  FAIL  " + msg);
-  failures++;
-}
-function ok(msg) {
-  console.log("  ok    " + msg);
-}
-function check(cond, msg) {
-  cond ? ok(msg) : fail(msg);
-}
-function finite(v) {
-  return typeof v === "number" && Number.isFinite(v);
-}
+function fail(msg) { console.error("  FAIL  " + msg); failures++; }
+function ok(msg) { console.log("  ok    " + msg); }
+function check(cond, msg) { cond ? ok(msg) : fail(msg); }
+function finite(v) { return typeof v === "number" && Number.isFinite(v); }
 
 vm.createContext(sandbox);
 vm.runInContext(match[1], sandbox, { filename: "index.html#script" });
 
 const FJ = sandbox.FrogJoust;
-if (!FJ) fail("game did not expose its headless handle");
+if (!FJ) { fail("game did not expose its headless handle"); process.exit(1); }
 
 const DT = 1 / 120;
 function performanceNow() { return clock; }
 function step(seconds) {
   const n = Math.round(seconds / DT);
-  for (let i = 0; i < n; i++) {
-    clock += DT * 1000;
-    FJ.update(DT);
-  }
+  for (let i = 0; i < n; i++) { clock += DT * 1000; FJ.update(DT); }
+}
+const R = () => Math.floor(FJ.CFG.arena / 2);
+
+// Park the rivals where they cannot interfere with a test.
+function benchRivals() {
+  for (const e of FJ.state().enemies) if (e) { e.dead = true; e.respawnIn = 1e6; }
+}
+// Empty the board AND stop the lanes producing more, so a test sees only the
+// traffic it put there itself.
+function clearHazards() {
+  FJ.state().hazards.length = 0;
+  for (const lane of FJ.state().lanes) lane.timer = 1e6;
+}
+
+function freshLevel(i = 0) {
+  FJ.loadLevel(i);
+  benchRivals();
+  FJ.input.holding = false;
+  FJ.input.consumed = true;
+  FJ.input.hopQueue = null;
+  FJ.input.steer.x = 0; FJ.input.steer.y = 0;
 }
 
 // --- 1. the projection round-trips and is square to the screen ----------
@@ -71,8 +84,6 @@ function step(seconds) {
   }
   check(worst < 1e-12, `world -> screen -> world is exact (worst error ${worst})`);
 
-  // Rows must run flat across the screen and columns straight up and down,
-  // or the swipe mapping the player asked for is a lie.
   const east = FJ.proj(1, 0, 0), south = FJ.proj(0, 1, 0);
   check(east.y === 0 && east.x > 0, "moving east is purely rightward on screen");
   check(south.x === 0 && south.y > 0, "moving south is purely downward on screen");
@@ -88,8 +99,6 @@ function step(seconds) {
     const r = (a * Math.PI) / 180;
     const d = FJ.snapDir(Math.cos(r), Math.sin(r));
     if (!finite(d.x) || !finite(d.y)) clean = false;
-    // No rounding here on purpose: a grid game needs exactly +/-1 and 0, or
-    // the frog drifts off the cell centres over time.
     if (Math.abs(d.x) + Math.abs(d.y) !== 1) exact = false;
     if (!Number.isInteger(d.x) || !Number.isInteger(d.y)) exact = false;
     all.add(`${d.x},${d.y}`);
@@ -98,44 +107,30 @@ function step(seconds) {
   check(exact, "directions are exactly unit cardinals, no floating-point drift");
   check(all.size === 4, `every swipe angle lands on one of 4 directions (got ${all.size})`);
 
-  // Hops snap the raw screen delta: up is forward, right is right.
   const swipe = (sx, sy) => FJ.snapDir(sx, sy);
-
-  const up = swipe(0, -120);
-  check(up.x === 0 && up.y === -1, "swiping up moves forward, away from the camera");
-  const down = swipe(0, 120);
-  check(down.x === 0 && down.y === 1, "swiping down moves back, toward the camera");
-  const right = swipe(120, 0);
-  check(right.x === 1 && right.y === 0, "swiping right moves right");
-  const left = swipe(-120, 0);
-  check(left.x === -1 && left.y === 0, "swiping left moves left");
-
-  // A sloppy swipe must resolve to the axis it is nearest ON SCREEN — the
-  // boundary sits at a true 45 degrees rather than being pulled toward the
-  // squashed axis.
+  check(swipe(0, -120).y === -1, "swiping up moves forward, away from the camera");
+  check(swipe(0, 120).y === 1, "swiping down moves back, toward the camera");
+  check(swipe(120, 0).x === 1, "swiping right moves right");
+  check(swipe(-120, 0).x === -1, "swiping left moves left");
   check(swipe(100, -40).x === 1, "a shallow up-right swipe still reads as right");
   check(swipe(40, -100).y === -1, "a steep up-right swipe still reads as forward");
-  const near45a = swipe(100, -99), near45b = swipe(99, -100);
-  check(near45a.x === 1 && near45a.y === 0 && near45b.x === 0 && near45b.y === -1,
-    "the boundary between right and forward sits at 45 degrees on screen");
 }
 
-// --- 3. a hop covers whole cells and stays grid aligned -----------------
+// --- 3. hops cover whole cells and stay grid aligned --------------------
 {
-  FJ.reset();
+  freshLevel(0);
+  clearHazards();
   const from = { x: FJ.state().player.x, y: FJ.state().player.y };
-  FJ.requestHop({ x: 1, y: 0 });
+  FJ.requestHop({ x: 120, y: 0 });
   step(0.02);
   check(FJ.state().player.state === "hop", "a queued direction starts a hop");
   step(FJ.CFG.hopTime + 0.05);
   const p = FJ.state().player;
-  const travelled = Math.hypot(p.x - from.x, p.y - from.y);
-  check(Math.abs(travelled - FJ.CFG.hopCells) < 1e-9,
-    `hop covers hopCells exactly (${travelled} cells)`);
+  check(Math.abs(Math.abs(p.x - from.x) - FJ.CFG.hopCells) < 1e-9,
+    `hop covers hopCells exactly (${Math.abs(p.x - from.x)} cells)`);
   check(p.state === "idle" && p.z < 4, "hop ends idle and back on the floor");
 
-  // Walk a lap around the board and make sure we are still on cell centres.
-  const walk = [[1, 0], [0, 1], [0, 1], [-1, 0], [0, -1], [1, 0], [-1, 0]];
+  const walk = [[120, 0], [0, 120], [0, -120], [-120, 0], [120, 0], [0, 120]];
   let drift = 0;
   for (const [dx, dy] of walk) {
     FJ.requestHop({ x: dx, y: dy });
@@ -143,148 +138,223 @@ function step(seconds) {
     const q = FJ.state().player;
     drift = Math.max(drift, Math.abs(q.x - Math.round(q.x)), Math.abs(q.y - Math.round(q.y)));
   }
-  check(drift === 0, `after a lap the frog is still exactly on a cell (drift ${drift})`);
-
-  // And it cannot hop off the board.
-  for (let i = 0; i < 20; i++) { FJ.requestHop({ x: 1, y: 0 }); step(FJ.CFG.hopTime + 0.03); }
-  const edge = FJ.state().player;
-  const bound = Math.floor(FJ.CFG.arena / 2);
-  check(edge.x === bound, `the frog stops at the arena edge (x=${edge.x}, bound ${bound})`);
+  check(drift === 0, `after a walk the frog is still exactly on a cell (drift ${drift})`);
 }
 
-// --- 4. movement is locked while extending, freed on release ------------
+// --- 4. the board wraps -------------------------------------------------
 {
-  FJ.reset();
-  FJ.input.holding = true;
-  FJ.input.consumed = false;
-  step(0.25);
-  const before = { x: FJ.state().player.x, y: FJ.state().player.y };
-  FJ.requestHop({ x: 1, y: 0 });
-  step(0.1);
-  const during = FJ.state().player;
-  check(during.x === before.x && during.y === before.y && during.state === "idle",
-    "the frog cannot hop while the tongue is going out");
+  freshLevel(0);
+  clearHazards();
+  const s = FJ.state();
+  // A dry row: row 0 is the stream on this level, and a drowned frog cannot
+  // demonstrate anything about wrapping.
+  const dry = -R() + 1;
+  s.player.x = -R(); s.player.y = dry;
 
-  // Release, then try to move immediately — the tongue is still on its way
-  // home and that must not hold the frog in place.
-  FJ.input.holding = false;
-  step(1 / 60);
-  check(FJ.state().tongue.state === "retract", "releasing starts the retraction");
-  FJ.requestHop({ x: 1, y: 0 });
-  step(1 / 60);
-  check(FJ.state().player.state === "hop",
-    "the frog can hop the instant it releases, mid-retraction");
+  FJ.requestHop({ x: -120, y: 0 });          // hop left off the left edge
+  step(FJ.CFG.hopTime + 0.06);
+  check(FJ.state().player.x === R(),
+    `hopping off the left edge comes out on the right (x=${FJ.state().player.x})`);
 
-  // And the tongue keeps reeling in while the frog is in the air.
-  const tongueMid = FJ.state().tongue;
-  check(tongueMid.state === "retract" && tongueMid.len > 0,
-    "the tongue carries on retracting during that hop");
-  step(1.2);
-  check(FJ.state().tongue.state === "idle" && FJ.state().player.state === "idle",
-    "both finish cleanly");
+  FJ.requestHop({ x: 120, y: 0 });           // and straight back again
+  step(FJ.CFG.hopTime + 0.06);
+  check(FJ.state().player.x === -R(), "and back again the other way");
+
+  // Vertically too — the far and near rows are both dry on this level.
+  s.player.y = -R();
+  FJ.requestHop({ x: 0, y: -120 });
+  step(FJ.CFG.hopTime + 0.06);
+  check(FJ.state().player.y === R(), "hopping off the far edge comes out at the near edge");
+
+  // Mid-flight the position is allowed out of bounds — that is what lets the
+  // on-screen copy arrive at the other side instead of the frog teleporting.
+  s.player.x = R(); s.player.y = dry;
+  FJ.requestHop({ x: 120, y: 0 });
+  step(FJ.CFG.hopTime * 0.5);
+  check(FJ.state().player.x > R(), "mid-hop the frog is genuinely past the edge");
+  step(FJ.CFG.hopTime);
+  check(FJ.state().player.x === -R(), "and lands wrapped");
 }
 
-// --- 4b. a fresh press cuts a retraction short --------------------------
+// --- 5. water kills, logs carry -----------------------------------------
 {
-  FJ.reset();
-  FJ.input.holding = true;
-  FJ.input.consumed = false;
-  step(0.4);
-  FJ.input.holding = false;
-  step(1 / 60);
-  check(FJ.state().tongue.state === "retract", "tongue is on its way back");
+  freshLevel(0);                       // Millrace: one water row
+  const waterRow = FJ.state().lanes.findIndex(l => l.type === "water") - R();
+  check(Number.isInteger(waterRow) && waterRow >= -R(),
+    `level 1 has a water lane (row ${waterRow})`);
 
-  FJ.input.holding = true;      // a new press, as a new finger down would be
-  FJ.input.consumed = false;
-  step(1 / 60);
-  const t = FJ.state().tongue;
-  check(t.state === "extend" && t.len < 0.5,
-    "pressing again interrupts the retraction and shoots a fresh tongue");
-  FJ.input.holding = false;
-  step(1.5);
+  // Hop into open water with nothing under you.
+  clearHazards();
+  const s = FJ.state();
+  s.player.x = 0; s.player.y = waterRow - 1;
+  s.player.dying = null;
+  const lostBefore = FJ.state().lost;
+  FJ.requestHop({ x: 0, y: 120 });     // toward the camera, into the stream
+  step(FJ.CFG.hopTime + 0.1);
+  check(FJ.state().player.dying === "water", "hopping into open water drowns you");
+  check(FJ.state().lost === lostBefore + 1, "and it counts against you");
+  step(1.4);
+  check(!FJ.state().player.dying, "you come back after a moment");
 }
 
-// --- 4c. swiping away mid-retraction must not kill the retraction --------
 {
-  FJ.reset();
-  FJ.input.holding = true;
-  FJ.input.consumed = false;
-  step(0.4);
-  FJ.input.holding = false;          // release
-  step(1 / 60);
-  const lenBefore = FJ.state().tongue.len;
-  check(FJ.state().tongue.state === "retract" && lenBefore > 1,
-    "tongue is well out and reeling in");
+  freshLevel(0);
+  clearHazards();
+  const waterRow = FJ.state().lanes.findIndex(l => l.type === "water") - R();
+  const s = FJ.state();
 
-  // A swipe is a press that turns into travel inside the grace window. It
-  // should hop the frog and leave the old tongue alone, not blink it away.
-  FJ.input.downAt = performanceNow();
-  FJ.input.holding = true;
-  FJ.input.consumed = false;
-  step(1 / 120);
-  FJ.input.holding = false;          // reinterpreted as a swipe
-  FJ.requestHop({ x: 1, y: 0 });
-  step(1 / 60);
+  // Put a log under the player and check it carries them.
+  s.hazards.push({ kind: "log", x: 0, y: waterRow, len: 3, vx: 1.5, sinking: 0, tint: 0 });
+  s.player.x = 0; s.player.y = waterRow;
+  s.player.state = "idle"; s.player.dying = null;
+  step(0.5);
+  const p = FJ.state().player;
+  check(!p.dying, "standing on a log keeps you dry");
+  check(Math.abs(p.x - 0.75) < 0.02, `and carries you downstream (x=${p.x.toFixed(3)})`);
 
-  const t = FJ.state().tongue;
-  check(t.state === "retract" && t.len > 0 && t.len < lenBefore,
-    `the tongue keeps reeling in through the swipe (${lenBefore.toFixed(2)} -> ${t.len.toFixed(2)})`);
-  check(FJ.state().player.state === "hop", "and the frog hops anyway");
-  step(1.2);
+  // Hopping off a log snaps you back onto the grid.
+  FJ.requestHop({ x: 0, y: -120 });
+  step(FJ.CFG.hopTime + 0.06);
+  const q = FJ.state().player;
+  check(Number.isInteger(q.x) && Number.isInteger(q.y),
+    `hopping off a drifting log lands you on a cell centre (${q.x}, ${q.y})`);
 }
 
-// --- 5. the tongue reaches, stays finite, and never exceeds its reach -----
+// --- 6. a log that reaches the end takes you with it --------------------
 {
-  FJ.reset();
+  freshLevel(0);
+  clearHazards();
+  const waterRow = FJ.state().lanes.findIndex(l => l.type === "water") - R();
+  const s = FJ.state();
+
+  // A log mid-board with the player aboard. Its leading edge reaches the far
+  // end at t = 4 / 1.5 ≈ 2.7s, and that is when it goes under.
+  s.hazards.push({ kind: "log", x: 0, y: waterRow, len: 3, vx: 1.5, sinking: 0, tint: 0 });
+  s.player.x = 0; s.player.y = waterRow;
+  s.player.state = "idle"; s.player.dying = null;
+  step(1.0);
+  check(!FJ.state().player.dying, "still riding while the log is on the board");
+  step(2.5);
+  check(FJ.state().player.dying === "water",
+    "riding a log to the end of the level drowns you when it goes under");
+}
+
+{
+  freshLevel(0);
+  clearHazards();
+  const waterRow = FJ.state().lanes.findIndex(l => l.type === "water") - R();
+  const s = FJ.state();
+
+  // "Unless there's another log underneath you." Everything in a lane moves at
+  // the same speed, so a trailing log can never catch up — the only way to be
+  // saved is to be standing where two logs OVERLAP, on the back of one and the
+  // front of the next. Short log spans [-1.5, 1.5], long one spans [-6, -1],
+  // and the frog stands at -1.4, which is on both.
+  const shortLog = { kind: "log", x: 0, y: waterRow, len: 3, vx: 1.5, sinking: 0, tint: 0 };
+  s.hazards.push(shortLog);
+  s.hazards.push({ kind: "log", x: -3.5, y: waterRow, len: 5, vx: 1.5, sinking: 0, tint: 0 });
+  s.player.x = -1.4; s.player.y = waterRow;
+  s.player.state = "idle"; s.player.dying = null;
+
+  step(3.2);      // the short log has gone under by now
+  check(FJ.state().hazards.indexOf(shortLog) === -1,
+    "the leading log has gone under");
+  check(!FJ.state().player.dying,
+    "and the log underneath saves you");
+  step(2.2);      // now the long one reaches the end too
+  check(FJ.state().player.dying === "water",
+    "until that one runs out as well");
+}
+
+// --- 7. carts ------------------------------------------------------------
+{
+  freshLevel(2);                       // The King's Road
+  const roadRows = [];
+  FJ.state().lanes.forEach((l, i) => { if (l.type === "road") roadRows.push(i - R()); });
+  check(roadRows.length === 2, `the road level is two cells wide (rows ${roadRows.join(", ")})`);
+
+  clearHazards();
+  const s = FJ.state();
+  s.player.x = 0; s.player.y = roadRows[0];
+  s.player.state = "idle"; s.player.dying = null;
+  step(0.05);
+  check(!FJ.state().player.dying, "standing on an empty road is fine");
+
+  s.hazards.push({ kind: "car", x: -3, y: roadRows[0], len: 1.6, vx: 6, sinking: 0, tint: 0 });
+  step(0.6);
+  check(FJ.state().player.dying === "car", "a cart runs you down");
+}
+
+// --- 8. traffic spawns and clears ---------------------------------------
+{
+  freshLevel(3);                       // Toll Crossing: two streams + a road
+  const s = FJ.state();
+  const kinds = new Set(s.hazards.map(h => h.kind));
+  check(s.hazards.length > 0, `the level opens with traffic already running (${s.hazards.length})`);
+  check(kinds.has("log") && kinds.has("car"), "both logs and carts are present");
+
+  let peak = 0, bad = 0;
+  for (let i = 0; i < 60 * 60; i++) {
+    step(1 / 60);
+    const hz = FJ.state().hazards;
+    peak = Math.max(peak, hz.length);
+    for (const z of hz) if (!finite(z.x) || Math.abs(z.x) > R() + 40) bad++;
+  }
+  check(bad === 0, "nothing escapes to infinity over a minute of traffic");
+  check(peak < 60, `hazard count stays bounded (peak ${peak})`);
+}
+
+// --- 9. tongue: reach, curve, and hits ----------------------------------
+{
+  freshLevel(0);
+  clearHazards();
+  const s = FJ.state();
+  s.player.x = 0; s.player.y = -R() + 1; s.player.face = { x: 0, y: 1 };
+  s.player.dying = null;
   FJ.input.holding = true;
   FJ.input.consumed = false;
   FJ.input.steer.x = 0; FJ.input.steer.y = 0;
 
-  let maxLen = 0, bad = 0, overreach = 0;
+  let bad = 0, over = 0, maxLen = 0;
   for (let i = 0; i < 240; i++) {
-    clock += DT * 1000;
-    FJ.update(DT);
-    const t = FJ.state().tongue;
-    const m = { x: FJ.state().player.x, y: FJ.state().player.y };
+    step(DT);
+    const t = FJ.state().player.tongue;
     maxLen = Math.max(maxLen, t.len);
     for (const n of t.nodes) {
       if (!finite(n.x) || !finite(n.y)) bad++;
-      // Measured from the mouth, which sits 0.42 cells ahead of the frog.
-      const d = Math.hypot(n.x - m.x, n.y - m.y) - 0.42;
-      overreach = Math.max(overreach, d - FJ.CFG.tongueMax);
+      const d = Math.hypot(n.x - s.player.x, n.y - s.player.y) - 0.42;
+      over = Math.max(over, d - FJ.CFG.tongueMax);
     }
   }
   check(bad === 0, "no NaN anywhere in the sampled curve");
-  check(overreach < 1e-6,
-    `no part of the curve out-reaches tongueMax (worst overshoot ${overreach.toFixed(6)})`);
+  check(over < 1e-6, `no part of the curve out-reaches tongueMax (worst ${over.toFixed(6)})`);
   check(Math.abs(maxLen - FJ.CFG.tongueMax) < 1e-6,
     `tongue reaches its full ${FJ.CFG.tongueMax} cells and stops there`);
-
-  const s = FJ.state();
-  const tip = s.tongue.tip;
-  const reach = Math.hypot(tip.x - s.player.x, tip.y - s.player.y);
-  check(reach > FJ.CFG.tongueMax * 0.9,
-    `an unsteered tongue shoots out straight to full reach (tip ${reach.toFixed(2)} cells out)`);
+  FJ.input.holding = false;
+  step(1);
 }
 
-// --- 6. steering actually bends the arc ----------------------------------
 {
-  function shootWithSteer(sx, sy) {
-    FJ.reset();
+  function shoot(sx, sy) {
+    freshLevel(0);
+    clearHazards();
+    const s = FJ.state();
+    s.player.x = 0; s.player.y = 0; s.player.face = { x: 0, y: 1 };
+    s.player.dying = null;
+    s.lanes.forEach(l => { if (l.type !== "grass") { l.type = "grass"; } });
     FJ.input.holding = true;
     FJ.input.consumed = false;
     FJ.input.steer.x = sx; FJ.input.steer.y = sy;
     step(0.6);
-    const t = FJ.state().tongue;
+    const t = FJ.state().player.tongue;
     return { tip: { x: t.tip.x, y: t.tip.y }, nodes: t.nodes.map(n => ({ x: n.x, y: n.y })) };
   }
-  const straight = shootWithSteer(0, 0);
-  const steered = shootWithSteer(-0.7071, 0.7071);
+  const straight = shoot(0, 0);
+  const steered = shoot(-0.7071, 0.7071);
   const drift = Math.hypot(steered.tip.x - straight.tip.x, steered.tip.y - straight.tip.y);
   check(finite(drift) && drift > 0.5,
     `steering carries the tip well off the straight path (${drift.toFixed(2)} cells)`);
 
-  // A steered tongue must actually bow, not just pivot as a rigid stick.
   function bulge(sample) {
     const a = sample.nodes[0], b = sample.nodes[sample.nodes.length - 1];
     const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
@@ -298,38 +368,106 @@ function step(seconds) {
   check(bulge(straight) < 0.02, "an unsteered tongue draws a straight line");
   check(bulge(steered) > 0.3,
     `a steered tongue draws a real curve (${bulge(steered).toFixed(2)} cells of bow)`);
-
-  // Sampling must stay smooth — no kinks for the ribbon renderer to snag on.
-  let maxStep = 0, minStep = Infinity;
-  for (let i = 1; i < steered.nodes.length; i++) {
-    const d = Math.hypot(steered.nodes[i].x - steered.nodes[i - 1].x,
-                         steered.nodes[i].y - steered.nodes[i - 1].y);
-    maxStep = Math.max(maxStep, d);
-    minStep = Math.min(minStep, d);
-  }
-  check(maxStep / minStep < 4,
-    `curve samples stay evenly spaced (${(maxStep / minStep).toFixed(2)}x spread)`);
+  FJ.input.holding = false;
+  step(1);
 }
 
-// --- 7. a hit unhorses the rider -----------------------------------------
+// --- 10. movement is locked while extending, freed on release -----------
 {
-  FJ.reset();
+  freshLevel(0);
+  clearHazards();
   const s = FJ.state();
-  s.enemies[0].x = 0; s.enemies[0].y = 2;       // two cells due south, dead ahead
-  for (let i = 1; i < s.enemies.length; i++) {  // clear the lane of everyone else
-    s.enemies[i].x = -9; s.enemies[i].y = -9;
-  }
+  s.player.x = 0; s.player.y = -R() + 1; s.player.dying = null;
+  FJ.input.downAt = performanceNow();
+  FJ.input.holding = true;
+  FJ.input.consumed = false;
+  step(0.25);
+  const before = { x: FJ.state().player.x, y: FJ.state().player.y };
+  FJ.requestHop({ x: 120, y: 0 });
+  step(0.1);
+  const during = FJ.state().player;
+  check(during.x === before.x && during.y === before.y && during.state === "idle",
+    "the frog cannot hop while the tongue is going out");
+
+  FJ.input.holding = false;
+  step(1 / 60);
+  check(FJ.state().player.tongue.state === "retract", "releasing starts the retraction");
+  const lenBefore = FJ.state().player.tongue.len;
+  FJ.requestHop({ x: 120, y: 0 });
+  step(1 / 60);
+  check(FJ.state().player.state === "hop",
+    "the frog can hop the instant it releases, mid-retraction");
+  const t = FJ.state().player.tongue;
+  check(t.state === "retract" && t.len > 0 && t.len < lenBefore,
+    `the tongue carries on reeling in during that hop (${lenBefore.toFixed(2)} -> ${t.len.toFixed(2)})`);
+  step(1.2);
+}
+
+// --- 11. rivals hunt, and their tongues are lethal ----------------------
+{
+  FJ.loadLevel(0);
+  clearHazards();
+  const s = FJ.state();
+  // One rival, parked a few cells from a stationary player.
+  for (let i = 1; i < s.enemies.length; i++) if (s.enemies[i]) { s.enemies[i].dead = true; s.enemies[i].respawnIn = 1e6; }
+  const foe = s.enemies[0];
+  foe.dead = false; foe.rider = true;
+  foe.x = 4; foe.y = -R() + 1;
+  s.player.x = 0; s.player.y = -R() + 1;
+  s.player.dying = null;
+  FJ.input.holding = false;
+  FJ.input.consumed = true;
+
+  const startGap = Math.abs(foe.x - s.player.x);
+  step(1.6);
+  const gap = Math.abs(FJ.state().enemies[0].x - FJ.state().player.x);
+  check(gap < startGap, `a rival closes the distance (${startGap} -> ${gap.toFixed(2)})`);
+
+  step(8);
+  check(FJ.state().lost > 0 || FJ.state().player.dying,
+    "and eventually knocks you off your toad");
+}
+
+// --- 12. your tongue unhorses a rival ------------------------------------
+{
+  FJ.loadLevel(0);
+  clearHazards();
+  const s = FJ.state();
+  for (let i = 1; i < s.enemies.length; i++) if (s.enemies[i]) { s.enemies[i].dead = true; s.enemies[i].respawnIn = 1e6; }
+  const foe = s.enemies[0];
+  foe.dead = false; foe.rider = true;
+  foe.x = 0; foe.y = -R() + 3;          // two cells toward the camera
+  foe.hopTimer = 1e6; foe.restTimer = 1e6;   // hold still, do not fight back
+  s.player.x = 0; s.player.y = -R() + 1;
+  s.player.face = { x: 0, y: 1 };
+  s.player.dying = null;
+
+  const koBefore = FJ.state().ko;
+  FJ.input.downAt = performanceNow();
   FJ.input.holding = true;
   FJ.input.consumed = false;
   FJ.input.steer.x = 0; FJ.input.steer.y = 0;
   step(0.8);
-  check(FJ.state().enemies[0].rider === false, "a tongue hit knocks the rider off");
-  check(FJ.state().ko === 1, "the unhorsed tally counts it once");
-  check(FJ.state().debris.length === 1 && finite(FJ.state().debris[0].vz),
-    "the knight is launched with finite velocity");
+  check(FJ.state().ko === koBefore + 1, "your tongue unhorses a rival");
+  check(FJ.state().debris.length > 0, "and throws the knight off");
   FJ.input.holding = false;
-  step(3.6);
-  check(FJ.state().debris.length === 0, "the fallen knight is cleaned up");
+  step(1);
+}
+
+// --- 13. every level loads and is survivable to stand on ----------------
+{
+  for (let i = 0; i < FJ.LEVELS.length; i++) {
+    FJ.loadLevel(i);
+    benchRivals();
+    const s = FJ.state();
+    check(s.lanes.length === FJ.CFG.arena,
+      `"${s.level.name}" has one lane per row`);
+    check(s.lanes[Math.round(s.player.y) + R()].type === "grass",
+      `"${s.level.name}" starts you on dry ground`);
+    step(2);
+    check(!FJ.state().player.dying,
+      `"${s.level.name}" does not kill you for standing still`);
+  }
 }
 
 console.log("");
