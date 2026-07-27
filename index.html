@@ -157,6 +157,7 @@
     appearance: none;
   }
   button:hover { border-color: rgba(233, 239, 228, 0.4); }
+  button[aria-pressed="false"] { color: var(--muted); border-color: rgba(233, 239, 228, 0.1); }
   button:active { background: rgba(228, 180, 41, 0.2); }
   button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
 
@@ -298,6 +299,7 @@
     <div class="tally">
       <div class="score"><b id="fj-ko">0</b><span>unhorsed</span></div>
       <div class="btn-row">
+        <button id="fj-sound" type="button" aria-pressed="true">Sound</button>
         <button id="fj-tune" type="button">Tune</button>
         <button id="fj-reset" type="button">Reset</button>
       </div>
@@ -307,7 +309,7 @@
   <p class="hint" id="fj-hint">
     <b>Swipe</b> anywhere to hop<br>
     <b>Press and hold</b> to shoot the tongue<br>
-    drag to steer it &nbsp;·&nbsp; <b>release</b> to reel in
+    drag to steer it &nbsp;·&nbsp; <b>release</b> to reel in and move on
   </p>
 
   <div class="drawer" id="fj-drawer" aria-label="Feel tuning">
@@ -385,8 +387,101 @@
   var CFG = {};
   for (var k in DEFAULTS) CFG[k] = DEFAULTS[k];
 
-  var TONGUE_NODES = 26;   // rope resolution — visual fidelity, not feel
+  var TONGUE_NODES = 26;   // curve resolution — visual fidelity, not feel
   var FIXED_DT = 1 / 120;  // physics step
+  var ISO = 0.5;           // 2:1 dimetric — a cell is CELL wide, CELL*ISO tall
+  var TONGUE_Z = 15;       // px the tongue floats above the ground plane
+
+  // =====================================================================
+  // SOUND
+  //
+  // Placeholder voices, synthesised rather than sampled: no files to load and
+  // every one of them is a handful of numbers you can argue with. Nothing is
+  // built until the first touch, because browsers will not start audio before
+  // a gesture anyway.
+  // =====================================================================
+
+  var audio = { ctx: null, out: null, muted: false };
+
+  function audioStart() {
+    if (audio.ctx) {
+      if (audio.ctx.state === "suspended") audio.ctx.resume();
+      return;
+    }
+    try {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      audio.ctx = new AC();
+      audio.out = audio.ctx.createGain();
+      audio.out.gain.value = 0.5;
+      audio.out.connect(audio.ctx.destination);
+    } catch (e) { audio.ctx = null; }
+  }
+
+  function live() { return audio.ctx && !audio.muted; }
+
+  // A pitched blip that slides from f0 to f1.
+  function blip(type, f0, f1, dur, gain, delay) {
+    if (!live()) return;
+    var t = audio.ctx.currentTime + (delay || 0);
+    var o = audio.ctx.createOscillator();
+    var g = audio.ctx.createGain();
+    o.type = type;
+    o.frequency.setValueAtTime(f0, t);
+    o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(gain, t + Math.min(0.012, dur * 0.3));
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g); g.connect(audio.out);
+    o.start(t); o.stop(t + dur + 0.02);
+  }
+
+  // A band of noise sweeping from f0 to f1 — air, impacts, wet things.
+  function rush(f0, f1, dur, gain, q, delay) {
+    if (!live()) return;
+    var t = audio.ctx.currentTime + (delay || 0);
+    var n = Math.floor(audio.ctx.sampleRate * dur);
+    var buf = audio.ctx.createBuffer(1, n, audio.ctx.sampleRate);
+    var d = buf.getChannelData(0);
+    for (var i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+    var src = audio.ctx.createBufferSource();
+    src.buffer = buf;
+    var f = audio.ctx.createBiquadFilter();
+    f.type = "bandpass";
+    f.Q.value = q || 1.2;
+    f.frequency.setValueAtTime(f0, t);
+    f.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur);
+    var g = audio.ctx.createGain();
+    g.gain.setValueAtTime(gain, t);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    src.connect(f); f.connect(g); g.connect(audio.out);
+    src.start(t); src.stop(t + dur);
+  }
+
+  var sfx = {
+    hop: function () {
+      blip("sine", 190, 470, 0.11, 0.16);         // the push off
+      rush(900, 2200, 0.05, 0.05, 2);
+    },
+    land: function () {
+      blip("sine", 150, 70, 0.09, 0.13);          // weight arriving
+      rush(500, 180, 0.07, 0.07, 0.9);
+    },
+    tongueOut: function () {
+      rush(700, 3000, 0.16, 0.1, 1.8);            // thwip
+      blip("triangle", 320, 900, 0.13, 0.08);
+    },
+    tongueBack: function () {
+      rush(2600, 500, 0.15, 0.08, 1.6);           // slurp
+      blip("triangle", 780, 240, 0.16, 0.07);
+    },
+    hit: function () {
+      rush(1400, 400, 0.13, 0.16, 0.8);           // the thump
+      blip("square", 540, 500, 0.3, 0.1);         // armour, ringing
+      blip("square", 817, 760, 0.26, 0.06, 0.005);
+      blip("sine", 120, 60, 0.22, 0.12);
+    }
+  };
 
   // =====================================================================
   // MATH / PROJECTION
@@ -395,16 +490,30 @@
   function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
   function lerp(a, b, t) { return a + (b - a) * t; }
 
-  // Top-down: the world IS the screen, one cell to a square. Height is not a
-  // position offset here — it is read as scale in drawMount, which is what a
-  // camera looking straight down would actually see.
-  function proj(wx, wy) {
-    return { x: wx * CFG.cell, y: wy * CFG.cell };
+  // Isometric: each cell is a diamond. z is cosmetic height in px.
+  function proj(wx, wy, z) {
+    return {
+      x: (wx - wy) * CFG.cell * 0.5,
+      y: (wx + wy) * CFG.cell * ISO * 0.5 - (z || 0)
+    };
   }
 
-  // Screen delta -> world delta. One-to-one, so a swipe up the screen is north.
+  // Screen delta -> world delta, so a swipe is read in the world's axes rather
+  // than the screen's — a flick up and to the right is always north-east.
   function unproj(sx, sy) {
-    return { x: sx / CFG.cell, y: sy / CFG.cell };
+    var h = CFG.cell * ISO;
+    return {
+      x: sx / CFG.cell + sy / h,
+      y: sy / h - sx / CFG.cell
+    };
+  }
+
+  // Direction a world vector points, normalized in screen space.
+  function projDir(wx, wy) {
+    var sx = (wx - wy) * CFG.cell * 0.5;
+    var sy = (wx + wy) * CFG.cell * ISO * 0.5;
+    var d = Math.hypot(sx, sy) || 1;
+    return { x: sx / d, y: sy / d };
   }
 
   // Snap to one of the four cardinals. Done by comparison rather than by
@@ -521,7 +630,9 @@
       // Reinterpret: this was a swipe all along. Kill the nascent tongue.
       input.swiped = true;
       input.holding = false;
-      cancelTongue();
+      // Only kill a tongue THIS press started. One that is already reeling in
+      // belongs to the previous shot and must be left to finish.
+      if (tongue.state === "extend") cancelTongue();
       requestHop(unproj(dx, dy));
       return;
     }
@@ -581,11 +692,18 @@
   }
 
   function updateTongue(dt) {
-    // Buffered start: fires the moment the frog is standing still again.
-    if (tongue.state === "idle" && input.holding && !input.consumed &&
-        player.state === "idle") {
+    // Buffered start: fires the moment the frog is standing still again. A
+    // fresh press can also cut a retraction short — once you have released,
+    // nothing about the old shot should still be holding you back.
+    // Cutting a retraction short is only allowed once the press has outlived
+    // the swipe window — otherwise a swipe away would snap the old tongue out
+    // of existence instead of letting it reel in behind you.
+    var free = tongue.state === "idle" ||
+               (tongue.state === "retract" && now() - input.downAt >= CFG.swipeGrace);
+    if (free && input.holding && !input.consumed && player.state === "idle") {
       input.consumed = true;
       startTongue();
+      sfx.tongueOut();
     }
 
     if (tongue.state === "idle") return;
@@ -596,7 +714,10 @@
       // a visible stub behind.
       var ramp = clamp(tongue.t / 0.09, 0, 1);
       tongue.len = Math.min(CFG.tongueMax, tongue.len + CFG.extendSpeed * ramp * dt);
-      if (!input.holding && tongue.t >= CFG.minExtend) tongue.state = "retract";
+      if (!input.holding && tongue.t >= CFG.minExtend) {
+        tongue.state = "retract";
+        sfx.tongueBack();
+      }
     } else {
       tongue.len -= CFG.retractSpeed * dt;
       if (tongue.len <= 0.015) { cancelTongue(); return; }
@@ -714,6 +835,7 @@
       armor: mount.armor, trim: mount.trim,
       life: 0, grounded: false
     });
+    sfx.hit();
     setScore();
   }
 
@@ -725,8 +847,10 @@
     var bound = Math.floor(CFG.arena / 2);
 
     if (player.state === "idle") {
-      // Movement is locked out for the whole tongue cycle — extend AND retract.
-      if (tongue.state === "idle" && input.hopQueue) {
+      // Movement is locked only while the tongue is going OUT. Letting go ends
+      // the commitment: you can hop away while it is still reeling in, and the
+      // tongue simply trails from the mouth as you go.
+      if (tongue.state !== "extend" && input.hopQueue) {
         var dir = input.hopQueue;
         input.hopQueue = null;
         player.face = { x: dir.x, y: dir.y };
@@ -739,7 +863,8 @@
           ty: clamp(player.y + dir.y * CFG.hopCells, -bound, bound),
           t: 0
         };
-      } else if (tongue.state !== "idle") {
+        sfx.hop();
+      } else if (tongue.state === "extend") {
         input.hopQueue = null;
       }
     }
@@ -756,6 +881,7 @@
         player.state = "idle";
         player.z = 0;
         player.hop = null;
+        sfx.land();
       }
     } else {
       player.bob += dt * 2.2;
@@ -825,10 +951,20 @@
     viewH = canvas.clientHeight || window.innerHeight;
     canvas.width = Math.round(viewW * dpr);
     canvas.height = Math.round(viewH * dpr);
-    // The whole board is always on screen — no camera to chase, which is what
-    // you want when every rival matters.
-    var span = CFG.cell * (CFG.arena + 0.5);
-    scale = clamp(Math.min(viewW / span, viewH / span), 0.28, 2.4);
+    scale = clamp(Math.min(viewW, viewH) / 430, 0.62, 1.9);
+  }
+
+  // Follow the frog, but never past the edge of the board: on an axis where
+  // the whole arena already fits, the camera just centres and stays put. On a
+  // phone that means it tracks sideways and never drifts off the board.
+  function cameraAt() {
+    var p = proj(player.x, player.y, 0);
+    var halfW = viewW / (2 * scale), halfH = viewH / (2 * scale);
+    var boardW = (CFG.arena + 1) * CFG.cell * 0.5;
+    var boardH = (CFG.arena + 1) * CFG.cell * ISO * 0.5;
+    var limX = Math.max(0, boardW - halfW);
+    var limY = Math.max(0, boardH - halfH);
+    return { x: clamp(p.x, -limX, limX), y: clamp(p.y, -limY, limY) };
   }
 
   function render() {
@@ -836,17 +972,19 @@
     ctx.fillStyle = "#060e10";
     ctx.fillRect(0, 0, viewW, viewH);
 
+    var c = cameraAt();
     ctx.save();
-    ctx.translate(viewW * 0.5, viewH * 0.5);
+    ctx.translate(viewW * 0.5, viewH * 0.52);
     ctx.scale(scale, scale);
+    ctx.translate(-c.x, -c.y);
 
     drawArena();
 
-    // Looking straight down, "in front" just means lower on the screen.
+    // Further down the board means further from the camera: sort by x+y.
     var order = [];
-    for (var i = 0; i < enemies.length; i++) order.push({ d: enemies[i].y, m: enemies[i], kind: "mount" });
-    order.push({ d: player.y, m: player, kind: "mount" });
-    for (var j = 0; j < debris.length; j++) order.push({ d: debris[j].y, m: debris[j], kind: "debris" });
+    for (var i = 0; i < enemies.length; i++) order.push({ d: enemies[i].x + enemies[i].y, m: enemies[i], kind: "mount" });
+    order.push({ d: player.x + player.y, m: player, kind: "mount" });
+    for (var j = 0; j < debris.length; j++) order.push({ d: debris[j].x + debris[j].y, m: debris[j], kind: "debris" });
     order.sort(function (a, b) { return a.d - b.d; });
 
     for (var n = 0; n < order.length; n++) {
@@ -860,184 +998,212 @@
     drawVignette();
   }
 
-  // One square per cell. A cell centre sits at integer world coords, so the
-  // square around it runs from -0.5 to +0.5 — the frog always lands dead
-  // centre on a square.
+  // One diamond per cell. A cell centre sits at integer world coords, so its
+  // diamond runs from -0.5 to +0.5 — the frog always lands dead centre.
   function drawArena() {
     var R = Math.floor(CFG.arena / 2);
-    var C = CFG.cell;
-    var half = (R + 0.5) * C;
+    var hw = CFG.cell * 0.5, hh = CFG.cell * ISO * 0.5;
 
-    // Bank around the board.
+    // Bank around the board, so the arena reads as a raised island.
+    var rim = R + 1.15;
+    var corners = [proj(-rim, -rim, 0), proj(rim, -rim, 0), proj(rim, rim, 0), proj(-rim, rim, 0)];
+    ctx.beginPath();
+    ctx.moveTo(corners[0].x, corners[0].y);
+    for (var c = 1; c < 4; c++) ctx.lineTo(corners[c].x, corners[c].y);
+    ctx.closePath();
     ctx.fillStyle = "#16292b";
-    ctx.fillRect(-half - C * 0.6, -half - C * 0.6,
-                 (half + C * 0.6) * 2, (half + C * 0.6) * 2);
+    ctx.fill();
 
     for (var gx = -R; gx <= R; gx++) {
       for (var gy = -R; gy <= R; gy++) {
+        var p = proj(gx, gy, 0);
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y - hh);
+        ctx.lineTo(p.x + hw, p.y);
+        ctx.lineTo(p.x, p.y + hh);
+        ctx.lineTo(p.x - hw, p.y);
+        ctx.closePath();
         ctx.fillStyle = ((gx + gy) & 1) ? "#2b5f40" : "#356e45";
-        ctx.fillRect((gx - 0.5) * C, (gy - 0.5) * C, C, C);
+        ctx.fill();
+        ctx.strokeStyle = "rgba(6,20,18,0.22)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
       }
     }
 
+    ctx.beginPath();
+    var e0 = proj(-R - 0.5, -R - 0.5, 0), e1 = proj(R + 0.5, -R - 0.5, 0),
+        e2 = proj(R + 0.5, R + 0.5, 0), e3 = proj(-R - 0.5, R + 0.5, 0);
+    ctx.moveTo(e0.x, e0.y); ctx.lineTo(e1.x, e1.y);
+    ctx.lineTo(e2.x, e2.y); ctx.lineTo(e3.x, e3.y);
+    ctx.closePath();
     ctx.strokeStyle = "rgba(233,239,228,0.16)";
     ctx.lineWidth = 2;
-    ctx.strokeRect(-half, -half, half * 2, half * 2);
+    ctx.stroke();
   }
 
-  // Straight down, the sun is behind the camera: the shadow stays under the
-  // sprite and shrinks as the toad rises. Height reads as scale, not offset.
+  // Shadow stays on the ground while the sprite lifts away from it — the gap
+  // between the two is what sells the hop under a tilted camera.
   function drawShadow(wx, wy, z, r) {
-    var p = proj(wx, wy);
-    var t = clamp(1 - z / 150, 0.55, 1);
-    ctx.beginPath();
-    ctx.arc(p.x, p.y, r * t, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(4,12,12," + (0.4 * t) + ")";
-    ctx.fill();
-  }
-
-  function heightScale(z) { return 1 + (z || 0) * 0.006; }
-
-  // How much of its cell a mount fills. Sprites are authored around a 46px
-  // body, so this is the one knob that keeps them sitting right in a cell.
-  var SPRITE = 1.18;
-
-  // Everything below is drawn in local space facing EAST (+x) and then rotated
-  // into place, which is the whole advantage of a top-down view: one sprite,
-  // four facings, no per-direction art.
-  function drawMount(m) {
-    drawShadow(m.x, m.y, m.z, 23);
-    var p = proj(m.x, m.y);
-    var s = heightScale(m.z);
-
+    var p = proj(wx, wy, 0);
+    var t = clamp(1 - z / 90, 0.35, 1);
     ctx.save();
     ctx.translate(p.x, p.y);
-    ctx.rotate(Math.atan2(m.face.y, m.face.x));
-    ctx.scale(s * SPRITE, s * SPRITE);
-
-    // splayed legs, read clearly from directly above
-    ctx.fillStyle = "#2a5636";
-    for (var side = -1; side <= 1; side += 2) {
-      ctx.save();
-      ctx.translate(-13, side * 15);
-      ctx.rotate(side * 0.5);
-      ellipse(0, 0, 12, 6);
-      ctx.restore();
-      ctx.save();
-      ctx.translate(14, side * 13);
-      ctx.rotate(-side * 0.45);
-      ellipse(0, 0, 9, 5);
-      ctx.restore();
-    }
-
-    // body, lit along the spine. The dark rim is doing real work: without it
-    // a green toad on a green board has almost nothing to read against.
-    var g = ctx.createLinearGradient(0, -18, 0, 18);
-    g.addColorStop(0, "#4a8f55");
-    g.addColorStop(0.5, "#78c163");
-    g.addColorStop(1, "#4a8f55");
-    ctx.fillStyle = g;
-    ctx.strokeStyle = "rgba(9,26,18,0.65)";
-    ctx.lineWidth = 2.2;
+    ctx.scale(1, ISO);
     ctx.beginPath();
-    ctx.ellipse(0, 0, 23, 18, 0, 0, Math.PI * 2);
+    ctx.arc(0, 0, r * t, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(4,12,12," + (0.42 * t) + ")";
     ctx.fill();
-    ctx.stroke();
-
-    // warty back
-    ctx.fillStyle = "rgba(26,58,40,0.35)";
-    circle(-9, -7, 3);
-    circle(-3, 7, 2.6);
-    circle(-13, 4, 2.2);
-
-    // head
-    ctx.fillStyle = "#5ba25c";
-    ctx.beginPath();
-    ctx.ellipse(18, 0, 12, 13, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.stroke();
-
-    // eyes — symmetric, because from straight above they are
-    for (var e = -1; e <= 1; e += 2) {
-      ctx.fillStyle = "#5ba25c";
-      ctx.beginPath();
-      ctx.ellipse(20, e * 8, 6.4, 6.4, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-      ctx.fillStyle = "#f3f6e8";
-      circle(21.5, e * 8, 4.6);
-      ctx.fillStyle = "#11201c";
-      circle(23.4, e * 8, 2.2);
-    }
-
-    // mouth, where the tongue leaves
-    ctx.strokeStyle = "rgba(15,32,26,0.6)";
-    ctx.lineWidth = 1.8;
-    ctx.beginPath();
-    ctx.arc(20, 0, 9, -0.55 * Math.PI, 0.55 * Math.PI);
-    ctx.stroke();
-
-    if (m.rider) drawKnight(m.armor, m.trim);
     ctx.restore();
   }
 
-  // The knight as seen from above: crested helm, shoulders, plume trailing
-  // behind. Caller has already rotated and translated.
-  function drawKnight(armor, trim) {
-    // plume, tight enough to read as a crest trailing back rather than whiskers
-    ctx.strokeStyle = trim;
-    ctx.lineWidth = 3.2;
-    ctx.lineCap = "round";
-    for (var i = -1; i <= 1; i++) {
+  function drawMount(m) {
+    drawShadow(m.x, m.y, m.z, 21);
+    var p = proj(m.x, m.y, m.z);
+    var f = projDir(m.face.x, m.face.y);
+
+    ctx.save();
+    ctx.translate(p.x, p.y);
+
+    // haunches, wide enough to read past the body
+    ctx.fillStyle = "#2a5636";
+    ellipse(-20, -8, 9, 7);
+    ellipse(20, -8, 9, 7);
+
+    // body
+    var g = ctx.createLinearGradient(0, -28, 0, -2);
+    g.addColorStop(0, "#6fb85f");
+    g.addColorStop(1, "#31693f");
+    ctx.fillStyle = g;
+    ctx.strokeStyle = "rgba(9,26,18,0.55)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.ellipse(0, -14, 21, 15, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.stroke();
+
+    // belly sheen
+    ctx.fillStyle = "rgba(190,232,170,0.18)";
+    ellipse(-3, -19, 12, 7);
+
+    // front feet, splayed toward the camera so the toad has a front
+    ctx.fillStyle = "#357a44";
+    ellipse(-13, -1, 7, 4);
+    ellipse(13, -1, 7, 4);
+
+    function drawHead() {
+      ctx.fillStyle = "#579a58";
+      ctx.strokeStyle = "rgba(9,26,18,0.55)";
+      ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.moveTo(-4, 0);
-      ctx.quadraticCurveTo(-11, i * 2.5, -19, i * 5);
+      ctx.ellipse(f.x * 11, -25 + f.y * 5, 15, 11, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Eyes straddle the facing axis. The perpendicular is taken in WORLD
+      // space and then projected, so the pair foreshortens correctly at every
+      // angle instead of shearing when the toad turns.
+      var perp = projDir(-m.face.y, m.face.x);
+      var eyes = [];
+      for (var s = -1; s <= 1; s += 2) {
+        eyes.push({
+          x: f.x * 11 + perp.x * 7 * s,
+          y: -31 + f.y * 4 + perp.y * 7 * s
+        });
+      }
+      // Higher on screen is further away: draw that one first and a shade
+      // smaller, or a side-on toad ends up with two identical floating eyes.
+      eyes.sort(function (a, b) { return a.y - b.y; });
+      for (var e = 0; e < eyes.length; e++) {
+        var r = e === 0 ? 4.4 : 5.4;
+        ctx.fillStyle = "#f3f6e8";
+        circle(eyes[e].x, eyes[e].y, r);
+        ctx.fillStyle = "#11201c";
+        circle(eyes[e].x + f.x * 1.8, eyes[e].y + f.y * 1.2, r * 0.48);
+      }
+
+      // mouth line, where the tongue leaves
+      ctx.strokeStyle = "rgba(15,32,26,0.55)";
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.arc(f.x * 12, -23 + f.y * 5, 8, 0.15 * Math.PI, 0.85 * Math.PI);
       ctx.stroke();
     }
 
-    // gauntlets on the reins
-    ctx.fillStyle = shade(armor, 0.75);
-    circle(11, -7.5, 3.4);
-    circle(11, 7.5, 3.4);
+    // Who is nearer the camera depends on which way the toad is pointing.
+    // Facing away, the rider is in front of the head; facing towards us, the
+    // head is in front of the rider — get this backwards and the knight eats
+    // one of the toad's eyes.
+    var headNearer = f.y >= 0;
+    if (!headNearer) drawHead();
+    if (m.rider) drawKnight(0, -34, f, m.armor, m.trim);
+    if (headNearer) drawHead();
+    ctx.restore();
+  }
 
-    // shoulders
+  // Knight drawn in local space; f is the facing in screen units.
+  function drawKnight(ox, oy, f, armor, trim) {
+    ctx.save();
+    ctx.translate(ox - f.x * 2, oy);
+
+    // plume streams away from the facing
+    ctx.strokeStyle = trim;
+    ctx.lineWidth = 3;
+    ctx.lineCap = "round";
+    for (var i = -1; i <= 1; i++) {
+      ctx.beginPath();
+      ctx.moveTo(-f.x * 4, -20);
+      ctx.quadraticCurveTo(-f.x * 13, -27 + i * 2, -f.x * 22, -19 + i * 5);
+      ctx.stroke();
+    }
+
+    // torso — narrow shoulders, flared skirt, so it reads as a seated figure
     ctx.fillStyle = armor;
-    ellipse(0, 0, 10, 12);
+    ctx.beginPath();
+    ctx.moveTo(-9, 3);
+    ctx.quadraticCurveTo(-7, -12, 0, -13);
+    ctx.quadraticCurveTo(7, -12, 9, 3);
+    ctx.closePath();
+    ctx.fill();
+
+    // sash
+    ctx.fillStyle = trim;
+    ctx.beginPath();
+    ctx.moveTo(-8.4, -2); ctx.lineTo(8.4, -5);
+    ctx.lineTo(8.4, -2.4); ctx.lineTo(-8.4, 0.6);
+    ctx.closePath();
+    ctx.fill();
+
+    // pauldrons
     ctx.fillStyle = shade(armor, 1.3);
-    circle(0, -10, 5.4);
-    circle(0, 10, 5.4);
+    circle(-8.5, -9, 4.6);
+    circle(8.5, -9, 4.6);
 
-    // sash across the back
-    ctx.fillStyle = trim;
-    ctx.beginPath();
-    ctx.moveTo(-4, -11); ctx.lineTo(-1.4, -11);
-    ctx.lineTo(3, 11); ctx.lineTo(0.4, 11);
-    ctx.closePath();
-    ctx.fill();
-
-    // helm, with a crest ridge running front to back
+    // gorget + helm
+    ctx.fillStyle = shade(armor, 0.7);
+    ellipse(0, -14, 5.5, 2.6);
     ctx.fillStyle = shade(armor, 1.45);
-    circle(3, 0, 7.6);
-    ctx.fillStyle = trim;
-    ctx.fillRect(-2, -1.3, 12, 2.6);
-    // visor, at the front — this is the end that faces the fight
-    ctx.fillStyle = "#0b1614";
     ctx.beginPath();
-    ctx.arc(3, 0, 7.6, -0.42 * Math.PI, 0.42 * Math.PI);
+    ctx.arc(0, -19, 7, Math.PI, 0);
+    ctx.quadraticCurveTo(6, -13.5, 0, -12.5);
+    ctx.quadraticCurveTo(-6, -13.5, -7, -19);
     ctx.closePath();
     ctx.fill();
+
+    // visor slit, shifted with the facing so you can read where he is looking
+    ctx.fillStyle = "#0b1614";
+    ctx.fillRect(f.x * 2.2 - 5.5, -20, 11, 3.2);
+    ctx.restore();
   }
 
   function drawFlyingKnight(d) {
-    drawShadow(d.x, d.y, d.z, 9);
-    var p = proj(d.x, d.y);
-    var s = heightScale(d.z);
+    drawShadow(d.x, d.y, d.z, 10);
+    var p = proj(d.x, d.y, d.z);
     ctx.save();
     ctx.translate(p.x, p.y);
     ctx.rotate(d.rot);
-    ctx.scale(s, s);
     ctx.globalAlpha = clamp(1 - (d.life - 2.4) / 1, 0, 1);
-    drawKnight(d.armor, d.trim);
+    drawKnight(0, 0, { x: 1, y: 0 }, d.armor, d.trim);
     ctx.restore();
     ctx.globalAlpha = 1;
   }
@@ -1048,7 +1214,7 @@
 
     var nodes = tongue.nodes, N = nodes.length;
     var pts = new Array(N);
-    for (var i = 0; i < N; i++) pts[i] = proj(nodes[i].x, nodes[i].y);
+    for (var i = 0; i < N; i++) pts[i] = proj(nodes[i].x, nodes[i].y, TONGUE_Z);
 
     var left = [], right = [];
     for (var j = 0; j < N; j++) {
@@ -1072,8 +1238,6 @@
     g.addColorStop(1, "#e8607a");
     ctx.fillStyle = g;
     ctx.fill();
-    // A dark rim does the work the drop shadow used to: from straight above
-    // there is nowhere for a shadow to fall.
     ctx.strokeStyle = "rgba(40,8,18,0.6)";
     ctx.lineWidth = 1.6;
     ctx.stroke();
@@ -1084,6 +1248,10 @@
     circle(tip.x, tip.y, 5.4);
     ctx.fillStyle = "rgba(255,255,255,0.45)";
     circle(tip.x - 1.5, tip.y - 1.7, 1.8);
+
+    // its shadow on the ground, so reach reads clearly under the tilt
+    var tn = nodes[N - 1];
+    drawShadow(tn.x, tn.y, TONGUE_Z, 4.5);
   }
 
   function drawVignette() {
@@ -1220,6 +1388,7 @@
 
     canvas.addEventListener("pointerdown", function (e) {
       if (input.pointerId !== null) return;      // one finger drives the frog
+      audioStart();                              // browsers need the gesture
       input.pointerId = e.pointerId;
       canvas.setPointerCapture(e.pointerId);
       pressDown(e.clientX, e.clientY);
@@ -1242,6 +1411,7 @@
 
     window.addEventListener("keydown", function (e) {
       if (e.repeat) return;
+      audioStart();
       var key = e.key === " " ? " " : e.key;
       input.keys[key] = true;
       if (key === " ") {
@@ -1280,6 +1450,20 @@
       reset();
       setScore();
     });
+
+    var soundBtn = document.getElementById("fj-sound");
+    function syncSound() {
+      soundBtn.textContent = audio.muted ? "Muted" : "Sound";
+      soundBtn.setAttribute("aria-pressed", audio.muted ? "false" : "true");
+    }
+    try { audio.muted = localStorage.getItem("frogjoust.muted") === "1"; } catch (e) {}
+    syncSound();
+    soundBtn.addEventListener("click", function () {
+      audio.muted = !audio.muted;
+      if (!audio.muted) { audioStart(); sfx.hop(); }   // confirm it is back
+      try { localStorage.setItem("frogjoust.muted", audio.muted ? "1" : "0"); } catch (e) {}
+      syncSound();
+    });
   }
 
   var last = 0, acc = 0;
@@ -1307,7 +1491,8 @@
     globalThis.FrogJoust = {
       CFG: CFG, update: update, reset: reset, input: input,
       state: function () { return { player: player, tongue: tongue, enemies: enemies, debris: debris, ko: ko }; },
-      startTongue: startTongue, requestHop: requestHop, snapDir: snapDir, unproj: unproj
+      startTongue: startTongue, requestHop: requestHop, snapDir: snapDir,
+      unproj: unproj, proj: proj, ISO: ISO
     };
   } else {
     bindDom();

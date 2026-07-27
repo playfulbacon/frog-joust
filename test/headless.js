@@ -52,6 +52,7 @@ const FJ = sandbox.FrogJoust;
 if (!FJ) fail("game did not expose its headless handle");
 
 const DT = 1 / 120;
+function performanceNow() { return clock; }
 function step(seconds) {
   const n = Math.round(seconds / DT);
   for (let i = 0; i < n; i++) {
@@ -60,11 +61,20 @@ function step(seconds) {
   }
 }
 
-// --- 1. projection round-trips -----------------------------------------
+// --- 1. the isometric projection round-trips ----------------------------
 {
-  const w = FJ.unproj(FJ.CFG.cell, FJ.CFG.cell * 2);
-  check(Math.abs(w.x - 1) < 1e-9 && Math.abs(w.y - 2) < 1e-9,
-    "screen->world inverse is one-to-one in cells");
+  let worst = 0;
+  for (const [wx, wy] of [[1, 0], [0, 1], [-3, 2], [5, -5], [0.5, 0.25]]) {
+    const p = FJ.proj(wx, wy, 0);
+    const back = FJ.unproj(p.x, p.y);
+    worst = Math.max(worst, Math.abs(back.x - wx), Math.abs(back.y - wy));
+  }
+  check(worst < 1e-12, `world -> screen -> world is exact (worst error ${worst})`);
+
+  const one = FJ.proj(1, 0, 0);
+  check(Math.abs(one.x - FJ.CFG.cell / 2) < 1e-9 &&
+        Math.abs(one.y - (FJ.CFG.cell * FJ.ISO) / 2) < 1e-9,
+    "one cell east lands half a cell right and half a cell-height down");
 }
 
 // --- 2. swipe snapping is exactly four ways -----------------------------
@@ -85,10 +95,33 @@ function step(seconds) {
   check(exact, "directions are exactly unit cardinals, no floating-point drift");
   check(all.size === 4, `every swipe angle lands on one of 4 directions (got ${all.size})`);
 
-  const up = FJ.snapDir(...Object.values(FJ.unproj(0, -100)));
-  check(up.x === 0 && up.y === -1, "a straight-up swipe goes north");
-  const right = FJ.snapDir(...Object.values(FJ.unproj(100, 12)));
-  check(right.x === 1 && right.y === 0, "a mostly-right swipe goes east");
+  // Under the tilt the four world axes run diagonally on screen, so a swipe
+  // is inverse-projected first and only then snapped.
+  const swipe = (sx, sy) => { const w = FJ.unproj(sx, sy); return FJ.snapDir(w.x, w.y); };
+  const C = FJ.CFG.cell, H = C * FJ.ISO;
+
+  const downRight = swipe(C, H);
+  check(downRight.x === 1 && downRight.y === 0, "a down-right swipe goes east");
+  const upRight = swipe(C, -H);
+  check(upRight.x === 0 && upRight.y === -1, "an up-right swipe goes north");
+  const upLeft = swipe(-C, -H);
+  check(upLeft.x === -1 && upLeft.y === 0, "an up-left swipe goes west");
+  const downLeft = swipe(-C, H);
+  check(downLeft.x === 0 && downLeft.y === 1, "a down-left swipe goes south");
+
+  // Straight up the screen sits exactly on the boundary between two world
+  // axes. Two things must hold there: the same flick always gives the same
+  // hop, and leaning even slightly to one side picks that side. (A real
+  // finger is never exactly vertical, so in practice you get whichever way
+  // you leaned — which is the point.)
+  const a = swipe(0, -100), b = swipe(0, -250);
+  check(a.x === b.x && a.y === b.y,
+    "a dead-vertical swipe is deterministic, not a coin flip");
+  const leanRight = swipe(2, -100), leanLeft = swipe(-2, -100);
+  check(leanRight.x === 0 && leanRight.y === -1,
+    "leaning a touch right of vertical goes north");
+  check(leanLeft.x === -1 && leanLeft.y === 0,
+    "leaning a touch left of vertical goes west");
 }
 
 // --- 3. a hop covers whole cells and stays grid aligned -----------------
@@ -123,7 +156,7 @@ function step(seconds) {
   check(edge.x === bound, `the frog stops at the arena edge (x=${edge.x}, bound ${bound})`);
 }
 
-// --- 4. hops are locked out for the whole tongue cycle -------------------
+// --- 4. movement is locked while extending, freed on release ------------
 {
   FJ.reset();
   FJ.input.holding = true;
@@ -134,14 +167,74 @@ function step(seconds) {
   step(0.1);
   const during = FJ.state().player;
   check(during.x === before.x && during.y === before.y && during.state === "idle",
-    "the frog cannot hop while the tongue is out");
+    "the frog cannot hop while the tongue is going out");
 
+  // Release, then try to move immediately — the tongue is still on its way
+  // home and that must not hold the frog in place.
   FJ.input.holding = false;
-  step(1.2);
-  check(FJ.state().tongue.state === "idle", "releasing reels the tongue all the way in");
+  step(1 / 60);
+  check(FJ.state().tongue.state === "retract", "releasing starts the retraction");
   FJ.requestHop({ x: 1, y: 0 });
-  step(0.05);
-  check(FJ.state().player.state === "hop", "movement is handed back once the tongue is home");
+  step(1 / 60);
+  check(FJ.state().player.state === "hop",
+    "the frog can hop the instant it releases, mid-retraction");
+
+  // And the tongue keeps reeling in while the frog is in the air.
+  const tongueMid = FJ.state().tongue;
+  check(tongueMid.state === "retract" && tongueMid.len > 0,
+    "the tongue carries on retracting during that hop");
+  step(1.2);
+  check(FJ.state().tongue.state === "idle" && FJ.state().player.state === "idle",
+    "both finish cleanly");
+}
+
+// --- 4b. a fresh press cuts a retraction short --------------------------
+{
+  FJ.reset();
+  FJ.input.holding = true;
+  FJ.input.consumed = false;
+  step(0.4);
+  FJ.input.holding = false;
+  step(1 / 60);
+  check(FJ.state().tongue.state === "retract", "tongue is on its way back");
+
+  FJ.input.holding = true;      // a new press, as a new finger down would be
+  FJ.input.consumed = false;
+  step(1 / 60);
+  const t = FJ.state().tongue;
+  check(t.state === "extend" && t.len < 0.5,
+    "pressing again interrupts the retraction and shoots a fresh tongue");
+  FJ.input.holding = false;
+  step(1.5);
+}
+
+// --- 4c. swiping away mid-retraction must not kill the retraction --------
+{
+  FJ.reset();
+  FJ.input.holding = true;
+  FJ.input.consumed = false;
+  step(0.4);
+  FJ.input.holding = false;          // release
+  step(1 / 60);
+  const lenBefore = FJ.state().tongue.len;
+  check(FJ.state().tongue.state === "retract" && lenBefore > 1,
+    "tongue is well out and reeling in");
+
+  // A swipe is a press that turns into travel inside the grace window. It
+  // should hop the frog and leave the old tongue alone, not blink it away.
+  FJ.input.downAt = performanceNow();
+  FJ.input.holding = true;
+  FJ.input.consumed = false;
+  step(1 / 120);
+  FJ.input.holding = false;          // reinterpreted as a swipe
+  FJ.requestHop({ x: 1, y: 0 });
+  step(1 / 60);
+
+  const t = FJ.state().tongue;
+  check(t.state === "retract" && t.len > 0 && t.len < lenBefore,
+    `the tongue keeps reeling in through the swipe (${lenBefore.toFixed(2)} -> ${t.len.toFixed(2)})`);
+  check(FJ.state().player.state === "hop", "and the frog hops anyway");
+  step(1.2);
 }
 
 // --- 5. the tongue reaches, stays finite, and never exceeds its reach -----
