@@ -15,8 +15,9 @@ works, as does any static host. Pick a level from the menu.
 The camera is tilted back over a checkerboard, one square per cell, with the
 board squared up to the screen rather than stood on its corner: rows run across,
 columns run up and down. Swipe up to go forward, down to come back, left and
-right to go left and right. **The edges wrap** — hop off one side and you come
-back on the other.
+right to go left and right. The edges are walls by default; **Wrap at edges**
+in the tuning drawer turns the board into a torus, so hopping off one side
+brings you back on the other.
 
 | Input | Touch | Keyboard |
 | --- | --- | --- |
@@ -103,14 +104,23 @@ steering comes from: your finger, or the direction of you.
 - The snap is **by comparison, not by rounding an angle** — the result is
   exactly `±1` and `0`, so repeated hops can never accumulate floating-point
   drift off the cell centres.
+- **Wrapping is a setting (`wrapEdges`), off by default**, and it reaches
+  further than the hop. Rivals path by the shortest route and the tongue
+  measures its reach the same way, so with walls up both have to stop reaching
+  around the outside of the board — otherwise a rival on the far side hunts you
+  through a wall it cannot cross.
+- With walls, the hop target is clamped **at the start of the hop**, not on
+  landing, so the flight never leaves the board and snaps back mid-air. A hop
+  into a wall becomes a hop on the spot, which reads as bouncing off it.
 - **Wrapping applies to hops, not to drifting.** Hop off an edge and you come
-  out the other side; get carried off one by a log and you drown. That
-  asymmetry is deliberate — it is what makes riding a log to the end a real
-  risk rather than a free ride round the board.
-- A hop's landing is where the wrap happens, so the flight itself runs off the
-  edge while an on-screen copy arrives at the other side. Copies are drawn only
-  when a mount is genuinely past the last cell; ghosting anything merely *near*
-  an edge leaves duplicate frogs parked outside the board.
+  out the other side; get carried off one by a log and you drown either way.
+  That asymmetry is deliberate — it is what makes riding a log to the end a
+  real risk rather than a free ride round the board.
+- With wrapping on, a hop's landing is where the wrap happens, so the flight
+  itself runs off the edge while an on-screen copy arrives at the other side.
+  Copies are drawn only when a mount is genuinely past the last cell; ghosting
+  anything merely *near* an edge leaves duplicate frogs parked outside the
+  board.
 - A mount riding a log is between columns. Hopping targets
   `round(x) + dir * hopCells`, which snaps it back onto the grid.
 - Everything in a lane moves at the same speed, so a trailing log can never
@@ -161,8 +171,11 @@ node test/headless.js
 Runs the simulation with no browser: it pulls the script out of `index.html`,
 steps it at a fixed timestep, and checks the projection round-trips, that
 swipes resolve to exactly four unit cardinals, that a walk leaves the frog with
-zero drift off the cell centres, that hops wrap in both axes and are genuinely
-out of bounds mid-flight, that open water drowns you and a log does not, that
+zero drift off the cell centres, that the default walls hold the frog on the
+board for the whole flight, that switching wrapping on carries hops across both
+axes and leaves them genuinely out of bounds mid-flight, that distances stop
+reaching around the edge when the walls are up, that open water drowns you and
+a log does not, that
 riding a log to the end drowns you unless a second log overlaps, that carts
 kill, that traffic stays bounded over a minute, that no part of the tongue
 curve out-reaches `tongueMax`, that movement frees up the instant you release,

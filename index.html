@@ -378,7 +378,7 @@
   </div>
 
   <p class="hint" id="fj-hint">
-    <b>Swipe</b> to hop &nbsp;·&nbsp; up is forward &nbsp;·&nbsp; edges wrap<br>
+    <b>Swipe</b> to hop &nbsp;·&nbsp; up is forward &nbsp;·&nbsp; <span id="fj-edges">edges are walls</span><br>
     <b>Press and hold</b> to shoot the tongue, drag to steer<br>
     ride the logs across &nbsp;·&nbsp; water and wheels are fatal
   </p>
@@ -431,6 +431,7 @@
     arena: 11,            // arena is arena x arena cells, and it wraps
 
     // --- hopping (four directions, whole cells, always grid aligned)
+    wrapEdges: 0,         // 0 = the edges are walls, 1 = the board is a torus
     hopCells: 1,
     hopTime: 0.19,
     hopHeight: 26,        // cosmetic lift at the apex
@@ -461,6 +462,7 @@
   };
 
   var TUNABLE = [
+    { key: "wrapEdges",    label: "Wrap at edges", type: "toggle" },
     { key: "hopCells",     label: "Hop distance",  min: 1,    max: 4,   step: 1,    unit: " cells" },
     { key: "hopTime",      label: "Hop time",      min: 0.08, max: 0.5, step: 0.01, unit: " s" },
     { key: "tongueMax",    label: "Tongue reach",  min: 1.5,  max: 6,   step: 0.1,  unit: " cells" },
@@ -675,19 +677,28 @@
     return { x: 0, y: wy < 0 ? -1 : 1 };
   }
 
-  // --- the board is a torus -------------------------------------------
+  // --- edges: walls, or a torus ---------------------------------------
   //
-  // Hop off one edge and you come back on the other. Note this applies to
-  // HOPS only: being carried off the edge by a log is not a wrap, it is a
-  // drowning, which is the whole point of riding one to the end.
+  // With wrapping on, hop off one edge and you come back on the other. Note it
+  // applies to HOPS only: being carried off the edge by a log is not a wrap,
+  // it is a drowning, which is the whole point of riding one to the end.
+  //
+  // The flag has to reach further than the hop itself. Rivals path by the
+  // shortest route and the tongue measures reach the same way, so with walls
+  // in place both have to stop reaching around the outside of the board.
+
+  function wrapping() { return CFG.wrapEdges >= 0.5; }
 
   function wrapCoord(v) {
     var s = CFG.arena, R = bound();
+    if (!wrapping()) return clamp(v, -R, R);
     return ((v + R) % s + s) % s - R;
   }
 
-  // Shortest signed distance between two coordinates across the wrap.
+  // Shortest signed distance between two coordinates, across the wrap if there
+  // is one.
   function wrapDelta(d) {
+    if (!wrapping()) return d;
     var s = CFG.arena;
     return d - Math.round(d / s) * s;
   }
@@ -701,6 +712,7 @@
   // than like a teleport: the frog leaves one side while its copy arrives at
   // the other, and on landing the copy simply becomes the real thing.
   function eachWrap(x, y, fn) {
+    if (!wrapping()) { fn(x, y); return; }
     var s = CFG.arena, R = bound();
     var xs = [0], ys = [0];
     // Only once the mount is genuinely PAST the last cell — which only happens
@@ -1168,12 +1180,17 @@
     m.state = "hop";
     // Whole cells from the nearest cell centre — a mount drifting on a log is
     // between columns, and hopping snaps it back onto the grid.
-    m.hop = {
-      fx: m.x, fy: m.y,
-      tx: Math.round(m.x) + dir.x * CFG.hopCells,
-      ty: Math.round(m.y) + dir.y * CFG.hopCells,
-      t: 0
-    };
+    var tx = Math.round(m.x) + dir.x * CFG.hopCells;
+    var ty = Math.round(m.y) + dir.y * CFG.hopCells;
+    if (!wrapping()) {
+      // Clamp the target up front rather than on landing, so the flight itself
+      // never leaves the board and snaps back. A hop into a wall becomes a hop
+      // on the spot, which reads as bouncing off it.
+      var R = bound();
+      tx = clamp(tx, -R, R);
+      ty = clamp(ty, -R, R);
+    }
+    m.hop = { fx: m.x, fy: m.y, tx: tx, ty: ty, t: 0 };
   }
 
   function advanceHop(m, dt) {
@@ -1973,6 +1990,12 @@
     if (elLamp.className !== "lamp " + cls) elLamp.className = "lamp " + cls;
   }
 
+  // The hint claims something about the edges, so it has to follow the setting.
+  function syncHint() {
+    var el = typeof document !== "undefined" && document.getElementById("fj-edges");
+    if (el) el.textContent = wrapping() ? "edges wrap" : "edges are walls";
+  }
+
   function fadeHint() {
     if (!elHint || hintTimer) return;
     hintTimer = setTimeout(function () { elHint.classList.add("away"); }, 3400);
@@ -2048,6 +2071,29 @@
       var label = document.createElement("label");
       label.textContent = t.label;
       label.htmlFor = "fj-t-" + t.key;
+
+      if (t.type === "toggle") {
+        var btn = document.createElement("button");
+        btn.type = "button";
+        btn.id = "fj-t-" + t.key;
+        function showToggle() {
+          var on = CFG[t.key] >= 0.5;
+          btn.textContent = on ? "On" : "Off";
+          btn.setAttribute("aria-pressed", on ? "true" : "false");
+        }
+        btn.addEventListener("click", function () {
+          CFG[t.key] = CFG[t.key] >= 0.5 ? 0 : 1;
+          showToggle();
+          saveTuning();
+          if (t.key === "wrapEdges") syncHint();
+        });
+        t._sync = function () { showToggle(); if (t.key === "wrapEdges") syncHint(); };
+        showToggle();
+        wrap.appendChild(label);
+        wrap.appendChild(btn);
+        host.appendChild(wrap);
+        return;
+      }
 
       var out = document.createElement("output");
       var input = document.createElement("input");
@@ -2226,6 +2272,7 @@
   } else {
     bindDom();
     setScore();
+    syncHint();
     elMenu.hidden = false;
     requestAnimationFrame(frame);
   }

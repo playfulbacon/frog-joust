@@ -141,10 +141,46 @@ function freshLevel(i = 0) {
   check(drift === 0, `after a walk the frog is still exactly on a cell (drift ${drift})`);
 }
 
-// --- 4. the board wraps -------------------------------------------------
+// --- 4a. walls (the default) --------------------------------------------
 {
   freshLevel(0);
   clearHazards();
+  FJ.CFG.wrapEdges = 0;
+  const s = FJ.state();
+  const dry = -R() + 1;
+  s.player.x = -R(); s.player.y = dry;
+
+  FJ.requestHop({ x: -120, y: 0 });          // hop left, into the left wall
+  step(FJ.CFG.hopTime + 0.06);
+  check(FJ.state().player.x === -R(),
+    `by default the edge is a wall and you stay put (x=${FJ.state().player.x})`);
+
+  // And the flight itself never leaves the board, so there is nothing to snap
+  // back from mid-air.
+  s.player.x = -R();
+  FJ.requestHop({ x: -120, y: 0 });
+  let strayed = 0;
+  for (let i = 0; i < Math.round((FJ.CFG.hopTime + 0.02) / DT); i++) {
+    step(DT);
+    if (FJ.state().player.x < -R() - 1e-9) strayed++;
+  }
+  check(strayed === 0, "a hop into a wall never puts the frog off the board");
+
+  s.player.y = -R();
+  FJ.requestHop({ x: 0, y: -120 });
+  step(FJ.CFG.hopTime + 0.06);
+  check(FJ.state().player.y === -R(), "the far edge is a wall too");
+
+  // With walls up, a rival on the far side must not path around the outside.
+  const far = FJ.wrapDelta(R() - (-R()));
+  check(far === 2 * R(), `distances do not reach around the edge (${far})`);
+}
+
+// --- 4b. wrapping, when switched on --------------------------------------
+{
+  freshLevel(0);
+  clearHazards();
+  FJ.CFG.wrapEdges = 1;
   const s = FJ.state();
   // A dry row: row 0 is the stream on this level, and a drowned frog cannot
   // demonstrate anything about wrapping.
@@ -174,6 +210,11 @@ function freshLevel(i = 0) {
   check(FJ.state().player.x > R(), "mid-hop the frog is genuinely past the edge");
   step(FJ.CFG.hopTime);
   check(FJ.state().player.x === -R(), "and lands wrapped");
+
+  const across = FJ.wrapDelta(R() - (-R()));
+  check(across === -1, `and distances take the short way round the edge (${across})`);
+
+  FJ.CFG.wrapEdges = 0;      // back to the default for everything after this
 }
 
 // --- 5. water kills, logs carry -----------------------------------------
