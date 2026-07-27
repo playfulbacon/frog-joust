@@ -854,6 +854,151 @@ function freshLevel(i = 0) {
     "starting another round puts the knights back");
 }
 
+// --- 17. a clash makes a mark you can see -------------------------------
+{
+  FJ.loadLevel(PLAIN);
+  clearHazards();
+  const s = FJ.state();
+  const foe = loneRival(3, 0);
+  foe.hopTimer = 1e6; foe.restTimer = 1e6;
+  foe.face = { x: -1, y: 0 };
+  foe.attacking = true; foe.holdTimer = 2;
+  s.player.x = 0; s.player.y = 0;
+  s.player.face = { x: 1, y: 0 };
+  s.player.dying = null; s.player.safeT = 1e6;
+  s.sparks.length = 0;
+
+  FJ.input.downAt = performanceNow();
+  FJ.input.holding = true;
+  FJ.input.consumed = false;
+  FJ.input.steer.x = 0; FJ.input.steer.y = 0;
+  FJ.startTongue(foe);
+  step(0.5);
+
+  const spark = FJ.state().sparks.find(k => k.kind === "clash") ||
+                (FJ.state().sparks.length === 0 ? null : FJ.state().sparks[0]);
+  check(spark !== null && spark !== undefined, "a clash throws off a burst");
+  if (spark) {
+    // ...and it happens between them, not at either mouth.
+    check(spark.x > 0.6 && spark.x < 2.4,
+      `the burst sits between the two knights (x=${spark.x.toFixed(2)})`);
+  }
+  FJ.input.holding = false;
+  step(1.2);
+}
+
+// --- 18. combo: one extend through two knights ---------------------------
+{
+  FJ.loadLevel(PLAIN);
+  clearHazards();
+  const s = FJ.state();
+  benchRivals();
+  // Two rivals side by side, both within a single sweep.
+  const a = s.enemies[0], b = s.enemies[1];
+  for (const foe of [a, b]) {
+    foe.dead = false; foe.rider = true; foe.state = "idle";
+    foe.hopTimer = 1e6; foe.restTimer = 1e6;
+  }
+  a.x = -1; a.y = -2;
+  b.x = 1; b.y = -2;
+  s.player.x = 0; s.player.y = 0;
+  s.player.face = { x: 0, y: -1 };            // facing them
+  s.player.dying = null; s.player.safeT = 1e6;
+
+  const before = FJ.state().score;
+  FJ.input.downAt = performanceNow();
+  FJ.input.holding = true;
+  FJ.input.consumed = false;
+  FJ.input.steer.x = -1; FJ.input.steer.y = -0.2;   // sweep across both
+  step(0.22);
+  FJ.input.steer.x = 1; FJ.input.steer.y = -0.2;    // and back the other way
+  step(0.5);
+
+  const felled = [a, b].filter(f => FJ.state().enemies.indexOf(f) >= 0 && f.dead).length;
+  const gained = FJ.state().score - before;
+  if (felled === 2) {
+    check(gained === FJ.CFG.pointsUnhorse * 3,
+      `two in one extend pays 1x then 2x (${gained} = ${FJ.CFG.pointsUnhorse} + ${FJ.CFG.pointsUnhorse * 2})`);
+  } else {
+    check(gained === FJ.CFG.pointsUnhorse * felled,
+      `a single hit pays flat (${felled} felled for ${gained})`);
+  }
+
+  // The counter must not carry across shots.
+  FJ.input.holding = false;
+  step(1.2);
+  check(FJ.state().player.tongue.hits === 0, "the combo counter resets between shots");
+}
+
+{
+  // The multiplier itself, checked directly so it does not depend on landing
+  // two sweeping hits in a physics sim.
+  FJ.loadLevel(PLAIN);
+  clearHazards();
+  const s = FJ.state();
+  benchRivals();
+  s.player.dying = null; s.player.safeT = 1e6;
+  s.player.x = 0; s.player.y = 0; s.player.face = { x: 0, y: -1 };
+
+  let expected = 0;
+  for (let n = 1; n <= 3; n++) {
+    const foe = s.enemies[(n - 1) % s.enemies.length];
+    foe.dead = false; foe.rider = true; foe.state = "idle";
+    foe.hopTimer = 1e6; foe.restTimer = 1e6;
+    foe.x = 0; foe.y = -1.5;                 // right on the tongue's path
+
+    if (n === 1) {
+      FJ.input.downAt = performanceNow();
+      FJ.input.holding = true;
+      FJ.input.consumed = false;
+      FJ.input.steer.x = 0; FJ.input.steer.y = 0;
+    }
+    const at = FJ.state().score;
+    for (let i = 0; i < 60 && !foe.dead; i++) step(DT);
+    expected += FJ.CFG.pointsUnhorse * n;
+    check(FJ.state().score - at === FJ.CFG.pointsUnhorse * n,
+      `knight ${n} of the same extend scores x${n} (${FJ.state().score - at})`);
+  }
+  check(FJ.state().score === expected, `three in one extend totals ${expected}`);
+  FJ.input.holding = false;
+  step(1.2);
+}
+
+// --- 19. helms cannot leave the field ------------------------------------
+{
+  FJ.loadLevel(PLAIN);
+  clearHazards();
+  const s = FJ.state();
+  benchRivals();
+  s.player.x = 0; s.player.y = 0; s.player.dying = null; s.player.safeT = 1e6;
+
+  // Fling helms hard off every corner and edge.
+  const escapes = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]];
+  for (const [ex, ey] of escapes) {
+    s.helmets.push({
+      x: ex * (R() - 0.2), y: ey * (R() - 0.2), z: 30,
+      vx: ex * 14, vy: ey * 14, vz: 240,
+      rot: 0, spin: 0, armor: "#b0353a", trim: "#e5cfa0", life: 0, landed: false
+    });
+  }
+
+  const scoreBefore = FJ.state().score;
+  let worst = 0;
+  for (let i = 0; i < 240; i++) {
+    step(DT);
+    for (const h of FJ.state().helmets) {
+      worst = Math.max(worst, Math.abs(h.x) - R(), Math.abs(h.y) - R());
+    }
+  }
+  check(worst <= 1e-9, `no helm ever leaves the board (worst overshoot ${worst.toFixed(6)})`);
+
+  // Every one is still accounted for: on the field, or claimed by the player
+  // as it bounced past. None may simply vanish over the edge.
+  const claimed = (FJ.state().score - scoreBefore) / FJ.CFG.pointsHelmet;
+  check(FJ.state().helmets.length + claimed === 8,
+    `all 8 are accounted for (${FJ.state().helmets.length} lying about, ${claimed} claimed)`);
+}
+
 // --- 13. every level loads and is survivable to stand on ----------------
 {
   for (let i = 0; i < FJ.LEVELS.length; i++) {

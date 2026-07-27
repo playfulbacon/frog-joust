@@ -70,22 +70,36 @@ carry their own traffic. Adding one is a few lines in `LEVELS`.
   about.
 - **Two tongues that meet in mid-air both turn back.** Neither knight gets the
   hit, which turns a head-on charge into a parry rather than a race to see who
-  registered first.
+  registered first. It throws off a burst at the point of contact — mid-air
+  between the two, not at either mouth — so you can see where you were beaten.
 - A struck knight is thrown **the way the blow was going**, with some scatter,
-  so a sweep sends them sideways rather than back along the tongue.
+  so a sweep sends them sideways rather than back along the tongue. In the air
+  he has a bare head rather than a helm, because the helm is on the grass
+  behind him.
+- Being run down by a cart throws the same burst, and pitches the knight the
+  way the cart was travelling.
 - Their **helm comes off** and stays on the field. Ride over it to claim it.
   Helms obey the same world rules as everyone else: they ride logs, and they
   sink in open water, so a knight unhorsed over the stream may cost you the
   spoils. They lie there for `helmetLife` seconds, blinking out at the end.
   **Rivals want them too** and will cross the field to beat you to one, which
   is what stops a dropped helm being free money you can collect at leisure.
+  A helm can never leave the board: it bounces off the boundary in flight and
+  is clamped to it while riding a log, so a knight struck at the edge cannot
+  fling the spoils somewhere unreachable.
 
 ## Scoring
 
 | | |
 | --- | --- |
-| Unhorsing a knight | `pointsUnhorse` (100) |
+| Unhorsing a knight | `pointsUnhorse` (100) × combo |
 | Collecting a fallen helm | `pointsHelmet` (150) |
+
+**Combo**: every knight felled by a *single* extend scores at a rising
+multiplier — the first is ×1, the second ×2, the third ×3, so sweeping through
+three in one shot pays 600 rather than 300. The counter lives on the tongue and
+resets whenever it starts or goes idle, so it can never leak across shots. This
+is the reason to line rivals up and sweep rather than pick them off.
 
 The helm is worth more than the kill on purpose: the kill is the thing you were
 already doing, and the helm is the thing that makes you leave safe ground to go
@@ -233,8 +247,11 @@ available, that the tongue turns for home by itself at full stretch and is
 still steerable afterwards, that a struck knight is always thrown away from the
 blow and never back into it, that a helm drops and can be collected for points
 and sinks if it lands in open water, that two tongues meeting head-on both turn
-back with neither knight unhorsed, that a rival crosses the field to steal a
-helm, that lives run down and end the round and that a finished round stops
-simulating, that movement frees up the instant you release,
+back with neither knight unhorsed and leave a burst between them, that the
+combo pays 1x/2x/3x within one extend and resets afterwards, that helms flung
+hard off all eight edges and corners all stay on the board and none goes
+missing, that a rival crosses the field to steal a helm, that lives run down
+and end the round and that a finished round stops simulating, that movement
+frees up the instant you release,
 that a rival closes and eventually unhorses you, and that every level loads and
 starts you somewhere dry.

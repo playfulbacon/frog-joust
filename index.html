@@ -727,9 +727,16 @@
     horn: function () { blip("sawtooth", 320, 300, 0.26, 0.05); blip("sawtooth", 404, 380, 0.26, 0.04); },
     respawn: function () { blip("sine", 380, 760, 0.16, 0.1); blip("sine", 570, 1140, 0.2, 0.05, 0.07); },
     clash: function () {                                   // wet slap, two tongues meeting
-      rush(1800, 700, 0.1, 0.12, 1.4);
-      blip("triangle", 520, 300, 0.12, 0.07);
-      blip("triangle", 700, 420, 0.1, 0.05, 0.02);
+      rush(2600, 900, 0.09, 0.15, 1.1);
+      blip("triangle", 620, 300, 0.13, 0.09);
+      blip("triangle", 880, 430, 0.11, 0.06, 0.015);
+      blip("sine", 200, 110, 0.16, 0.07, 0.01);
+    },
+    combo: function (n) {                                  // rising fanfare, one note per knight
+      var base = 520 * Math.pow(1.26, Math.min(n, 5) - 1);
+      blip("square", base, base, 0.09, 0.06);
+      blip("square", base * 1.5, base * 1.5, 0.16, 0.05, 0.07);
+      blip("sine", base * 2, base * 2, 0.2, 0.035, 0.12);
     },
     steal: function () {                                   // a rival got the helm
       blip("square", 620, 400, 0.14, 0.05);
@@ -836,7 +843,7 @@
   // =====================================================================
 
   var level, levelIndex, lanes, hazards, player, enemies, debris, helmets,
-      ripples, pops, ko, lost, lives, score, running, over;
+      ripples, pops, sparks, ko, lost, lives, score, running, over;
 
   var ARMOURS = [
     { armor: "#b0353a", trim: "#e5cfa0" },
@@ -855,6 +862,7 @@
       tip: { x: 0, y: 0 },
       prev: { x: 0, y: 0 },  // last frame's tip, for knockback velocity
       dir: { x: 1, y: 0 },   // the tip's heading; this is what steering turns
+      hits: 0,               // knights felled by THIS shot, for the combo
       nodes: []
     };
     for (var i = 0; i < TONGUE_NODES; i++) t.nodes.push({ x: 0, y: 0 });
@@ -905,6 +913,7 @@
     helmets = [];
     ripples = [];
     pops = [];
+    sparks = [];
     ko = 0;
     lost = 0;
     lives = Math.max(1, Math.round(CFG.lives));
@@ -1066,6 +1075,7 @@
     t.state = "extend";
     t.len = 0;
     t.t = 0;
+    t.hits = 0;
     t.tip.x = o.x; t.tip.y = o.y;
     t.prev.x = o.x; t.prev.y = o.y;
     t.dir.x = m.face.x; t.dir.y = m.face.y;
@@ -1076,6 +1086,7 @@
     m.tongue.state = "idle";
     m.tongue.len = 0;
     m.tongue.t = 0;
+    m.tongue.hits = 0;   // an idle tongue has no combo in progress
   }
 
   function updateTongue(m, steer, held, dt) {
@@ -1223,7 +1234,7 @@
         if (wrapDist(t.nodes[i], target) < CFG.hitRadius) {
           var dir = hitDirection(m, target, dt);
           if (target === player) killPlayer("tongue", dir);
-          else unhorse(target, dir);
+          else unhorse(target, dir, m);
           break;
         }
       }
@@ -1271,28 +1282,47 @@
         var reach = ta.len + tb.len + 0.85 + CFG.clashRadius;
         if (wrapDist(mounts[a], mounts[b]) > reach) continue;
 
-        var hit = false;
+        var hit = null;
         for (var i = 4; i < ta.nodes.length && !hit; i += 2) {
           for (var j = 4; j < tb.nodes.length; j += 2) {
-            if (wrapDist(ta.nodes[i], tb.nodes[j]) < CFG.clashRadius) { hit = true; break; }
+            if (wrapDist(ta.nodes[i], tb.nodes[j]) < CFG.clashRadius) {
+              hit = { x: (ta.nodes[i].x + tb.nodes[j].x) / 2,
+                      y: (ta.nodes[i].y + tb.nodes[j].y) / 2 };
+              break;
+            }
           }
         }
         if (!hit) continue;
 
         if (ta.state === "extend") ta.state = "retract";
         if (tb.state === "extend") tb.state = "retract";
+        addSpark(hit.x, hit.y, "clash");
         sfx.clash();
       }
     }
   }
 
-  function unhorse(mount, dir) {
+  function unhorse(mount, dir, attacker) {
     mount.rider = false;
     mount.dead = true;
     mount.respawnIn = CFG.respawnDelay;
     ko++;
-    addScore(CFG.pointsUnhorse);
-    pops.push({ x: mount.x, y: mount.y, t: 0, text: "+" + CFG.pointsUnhorse, mine: true });
+
+    // Everything felled by one extend scores at a rising multiplier, so
+    // lining two knights up and sweeping through both is worth more than
+    // picking them off one at a time.
+    var combo = 1;
+    if (attacker) combo = ++attacker.tongue.hits;
+    if (attacker === player) {
+      var gain = CFG.pointsUnhorse * combo;
+      addScore(gain);
+      pops.push({
+        x: mount.x, y: mount.y, t: 0, mine: true,
+        text: "+" + gain + (combo > 1 ? "  x" + combo : "")
+      });
+      if (combo > 1) sfx.combo(combo);
+    }
+
     throwRider(mount, dir, 250);
     dropHelmet(mount, dir);
     sfx.hit();
@@ -1513,6 +1543,7 @@
       ripples.push({ x: player.x, y: player.y, t: 0 });
     } else if (cause === "car") {
       sfx.squash();
+      addSpark(player.x, player.y, "impact");
       throwRider(player, dir || { x: 0, y: -1 }, 180);
     } else {
       sfx.hit();
@@ -1564,9 +1595,14 @@
         var R = bound();
         var drowned = Math.abs(m.x) > R + 0.5 ||
                       (laneAt(m.y).type === "water" && !supportUnder(m));
-        if (drowned || carHitting(m)) {
+        var struck = drowned ? null : carHitting(m);
+        if (drowned || struck) {
           if (drowned) { ripples.push({ x: m.x, y: m.y, t: 0 }); sfx.splash(); }
-          else sfx.squash();
+          else {
+            sfx.squash();
+            addSpark(m.x, m.y, "impact");
+            throwRider(m, { x: struck.vx > 0 ? 1 : -1, y: 0 }, 180);
+          }
           m.dead = true;
           m.rider = false;
           m.respawnIn = CFG.respawnDelay;
@@ -1673,20 +1709,29 @@
         h.vz -= 900 * dt;
         h.z += h.vz * dt;
         h.rot += h.spin * dt;
+
+        // A helm must never leave the field — a knight struck near the edge
+        // would otherwise send the spoils somewhere nobody can reach. It
+        // bounces off the boundary instead.
+        if (h.x < -R) { h.x = -R; h.vx = Math.abs(h.vx) * 0.55; }
+        if (h.x > R) { h.x = R; h.vx = -Math.abs(h.vx) * 0.55; }
+        if (h.y < -R) { h.y = -R; h.vy = Math.abs(h.vy) * 0.55; }
+        if (h.y > R) { h.y = R; h.vy = -Math.abs(h.vy) * 0.55; }
+
         if (h.z <= 0) {
           h.z = 0;
           h.landed = true;
-          h.y = Math.round(h.y);       // settle into a row so lanes apply
+          h.y = clamp(Math.round(h.y), -R, R);   // settle into a row so lanes apply
           h.spin = 0;
         }
       } else {
         var log = supportUnder(h);
-        if (log) h.x += log.vx * dt;
+        // Riding a log can only carry it to the boundary, never over it.
+        if (log) h.x = clamp(h.x + log.vx * dt, -R, R);
       }
 
       if (h.landed) {
-        var lost = Math.abs(h.x) > R + 0.5 ||
-                   (laneAt(h.y).type === "water" && !supportUnder(h));
+        var lost = laneAt(h.y).type === "water" && !supportUnder(h);
         if (lost) {
           ripples.push({ x: h.x, y: h.y, t: 0 });
           sfx.splash();
@@ -1720,6 +1765,21 @@
         }
       }
       if (taken) continue;
+    }
+  }
+
+  // Bursts: a ring plus a few spikes thrown outward. Used wherever something
+  // hits something else hard enough to be worth looking at.
+  function addSpark(x, y, kind) {
+    sparks.push({ x: x, y: y, t: 0, kind: kind, seed: Math.random() * Math.PI * 2 });
+  }
+
+  var SPARK_LIFE = { clash: 0.38, impact: 0.55 };
+
+  function updateSparks(dt) {
+    for (var i = sparks.length - 1; i >= 0; i--) {
+      sparks[i].t += dt;
+      if (sparks[i].t > SPARK_LIFE[sparks[i].kind]) sparks.splice(i, 1);
     }
   }
 
@@ -1793,6 +1853,7 @@
     checkTongueClashes();
     updateHelmets(dt);
     updatePops(dt);
+    updateSparks(dt);
     updateDebris(dt);
   }
 
@@ -1855,6 +1916,7 @@
 
     var mounts = allMounts();
     for (var t = 0; t < mounts.length; t++) drawTongue(mounts[t]);
+    drawSparks();
     drawPops();
 
     ctx.restore();
@@ -1939,6 +2001,48 @@
 
     ctx.fillStyle = colour;
     for (var sx = x; sx < x + w; sx += dash * 2) ctx.fillRect(sx, dy - 1.5, dash, 3);
+  }
+
+  function drawSparks() {
+    for (var i = 0; i < sparks.length; i++) {
+      var s = sparks[i];
+      var life = SPARK_LIFE[s.kind];
+      var u = clamp(s.t / life, 0, 1);
+      var clash = s.kind === "clash";
+      var p = proj(s.x, s.y, clash ? TONGUE_Z : 12);
+      var spikes = clash ? 7 : 9;
+      var reach = (clash ? 15 : 22) + u * (clash ? 22 : 34);
+      var fade = 1 - u;
+
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.scale(1, ISO);
+      ctx.strokeStyle = clash
+        ? "rgba(255,226,236," + (0.9 * fade) + ")"
+        : "rgba(224,214,196," + (0.85 * fade) + ")";
+      ctx.lineWidth = clash ? 2.4 : 3;
+      ctx.lineCap = "round";
+      for (var k = 0; k < spikes; k++) {
+        var a = s.seed + (k * Math.PI * 2) / spikes;
+        var r0 = reach * 0.45, r1 = reach * (0.85 + 0.3 * ((k % 3) / 3));
+        ctx.beginPath();
+        ctx.moveTo(Math.cos(a) * r0, Math.sin(a) * r0);
+        ctx.lineTo(Math.cos(a) * r1, Math.sin(a) * r1);
+        ctx.stroke();
+      }
+      ctx.beginPath();
+      ctx.arc(0, 0, reach * 0.5, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+
+      // a hot core for the first instant
+      if (u < 0.35) {
+        ctx.fillStyle = clash
+          ? "rgba(255,255,255," + (0.8 * (1 - u / 0.35)) + ")"
+          : "rgba(255,240,210," + (0.7 * (1 - u / 0.35)) + ")";
+        circle(p.x, p.y, (clash ? 7 : 10) * (1 - u / 0.35) + 2);
+      }
+    }
   }
 
   // The claim: a ring snapping outward and the value floating off the field.
@@ -2219,7 +2323,9 @@
     ctx.restore();
   }
 
-  function drawKnight(ox, oy, f, armor, trim) {
+  // `bare` swaps the helm for the head that was inside it — used for a knight
+  // who has just parted company with both his toad and his helmet.
+  function drawKnight(ox, oy, f, armor, trim, bare) {
     ctx.save();
     ctx.translate(ox - f.x * 2, oy);
 
@@ -2247,16 +2353,35 @@
 
     ctx.fillStyle = shade(armor, 0.7);
     ellipse(0, -14, 5.5, 2.6);
-    ctx.fillStyle = shade(armor, 1.45);
-    ctx.beginPath();
-    ctx.arc(0, -19, 7, Math.PI, 0);
-    ctx.quadraticCurveTo(6, -13.5, 0, -12.5);
-    ctx.quadraticCurveTo(-6, -13.5, -7, -19);
-    ctx.closePath();
-    ctx.fill();
 
-    ctx.fillStyle = "#0b1614";
-    ctx.fillRect(f.x * 2.2 - 5.5, -20, 11, 3.2);
+    if (bare) {
+      // The helm is on the grass somewhere — this is the man himself, and he
+      // is having a bad afternoon.
+      ctx.fillStyle = "#e3b184";
+      circle(0, -18.5, 6.2);
+      ctx.fillStyle = "#402d1d";                       // hair, over the top half
+      ctx.beginPath();
+      ctx.arc(0, -18.5, 6.2, Math.PI * 1.06, Math.PI * 1.94);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#2a1d14";
+      circle(-2.2, -18.6, 1);
+      circle(2.2, -18.6, 1);
+      ctx.beginPath();                                 // an open mouth
+      ctx.ellipse(0, -15.4, 1.7, 1.2, 0, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.fillStyle = shade(armor, 1.45);
+      ctx.beginPath();
+      ctx.arc(0, -19, 7, Math.PI, 0);
+      ctx.quadraticCurveTo(6, -13.5, 0, -12.5);
+      ctx.quadraticCurveTo(-6, -13.5, -7, -19);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = "#0b1614";
+      ctx.fillRect(f.x * 2.2 - 5.5, -20, 11, 3.2);
+    }
     ctx.restore();
   }
 
@@ -2267,7 +2392,7 @@
     ctx.translate(p.x, p.y);
     ctx.rotate(d.rot);
     ctx.globalAlpha = clamp(1 - (d.life - 2.4) / 1, 0, 1);
-    drawKnight(0, 0, { x: 1, y: 0 }, d.armor, d.trim);
+    drawKnight(0, 0, { x: 1, y: 0 }, d.armor, d.trim, true);
     ctx.restore();
     ctx.globalAlpha = 1;
   }
@@ -2699,7 +2824,7 @@
           player: player, enemies: enemies, hazards: hazards, lanes: lanes,
           debris: debris, helmets: helmets, level: level,
           ko: ko, lost: lost, lives: lives, score: score, over: over,
-          pops: pops
+          pops: pops, sparks: sparks
         };
       },
       startTongue: startTongue, requestHop: requestHop, snapDir: snapDir,
