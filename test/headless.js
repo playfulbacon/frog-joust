@@ -429,6 +429,66 @@ function freshLevel(i = 0) {
   step(1);
 }
 
+// --- 9b. the tongue can never get behind its own frog -------------------
+{
+  // Drive the steering all the way round the compass, holding each direction
+  // long enough for the tip to settle there, and watch every sampled point of
+  // the curve. Nothing may end up behind the frog's facing.
+  freshLevel(0);
+  clearHazards();
+  const s = FJ.state();
+  s.lanes.forEach(l => { l.type = "grass"; });
+  FJ.CFG.wrapEdges = 0;
+
+  const facings = [{ x: 0, y: 1 }, { x: 0, y: -1 }, { x: 1, y: 0 }, { x: -1, y: 0 }];
+  let worstBehind = 0, worstTipAngle = 0, widest = 0;
+  const lim = (FJ.CFG.tongueArc * Math.PI) / 180;
+
+  for (const face of facings) {
+    s.player.x = 0; s.player.y = 0;
+    s.player.state = "idle"; s.player.dying = null; s.player.safeT = 1e6;
+    s.player.face = { x: face.x, y: face.y };
+    FJ.input.downAt = performanceNow();
+    FJ.input.holding = true;
+    FJ.input.consumed = false;
+
+    for (let a = 0; a < 360; a += 15) {
+      const r = (a * Math.PI) / 180;
+      FJ.input.steer.x = Math.cos(r);
+      FJ.input.steer.y = Math.sin(r);
+      for (let i = 0; i < 30; i++) {
+        step(DT);
+        const p = FJ.state().player, t = p.tongue;
+        if (t.state === "idle") continue;
+        for (const n of t.nodes) {
+          // Forward component relative to the frog. Negative means behind it.
+          const fwd = (n.x - p.x) * p.face.x + (n.y - p.y) * p.face.y;
+          worstBehind = Math.min(worstBehind, fwd);
+        }
+        const vx = t.tip.x - p.x, vy = t.tip.y - p.y;
+        if (Math.hypot(vx, vy) > 0.2) {
+          const rel = Math.atan2(vy, vx) - Math.atan2(p.face.y, p.face.x);
+          const off = Math.abs(Math.atan2(Math.sin(rel), Math.cos(rel)));
+          worstTipAngle = Math.max(worstTipAngle, off);
+          widest = Math.max(widest, off);
+        }
+      }
+    }
+    FJ.input.holding = false;
+    step(1.2);
+  }
+
+  check(worstBehind > -1e-9,
+    `no part of the tongue ever gets behind the frog (worst ${worstBehind.toFixed(6)} cells)`);
+  check(worstTipAngle <= lim + 1e-6,
+    `the tip stays inside the ${FJ.CFG.tongueArc}° arc (reached ${(worstTipAngle * 180 / Math.PI).toFixed(1)}°)`);
+  // ...and the constraint must not have quietly strangled the sweep. The tip
+  // settles a little short of the full arc because the leash pulls toward the
+  // mouth, which sits ahead of the frog's centre — so allow for that.
+  check(widest > lim * 0.85,
+    `a full sideways sweep is still available (reached ${(widest * 180 / Math.PI).toFixed(1)}°)`);
+}
+
 // --- 10. movement is locked while extending, freed on release -----------
 {
   freshLevel(0);

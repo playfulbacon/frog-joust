@@ -442,6 +442,9 @@
     retractSpeed: 11.0,   // cells/sec the leash shortens once released
     sweepSpeed: 5.0,      // cells/sec the tip still travels while reeling in
     steerRate: 6.0,       // radians/sec the tip can swing its heading
+    tongueArc: 90,        // degrees either side of the facing the tongue may
+                          // reach. 90 is the widest allowed: a tongue must
+                          // never end up behind its own frog's head.
     curveBow: 0.45,
     minExtend: 0.14,
     hitRadius: 0.5,       // cells — tongue vs rider
@@ -469,6 +472,7 @@
     { key: "extendSpeed",  label: "Extend speed",  min: 3,    max: 22,  step: 0.5,  unit: " c/s" },
     { key: "retractSpeed", label: "Retract speed", min: 3,    max: 28,  step: 0.5,  unit: " c/s" },
     { key: "steerRate",    label: "Steer rate",    min: 0,    max: 16,  step: 0.25, unit: " rad/s" },
+    { key: "tongueArc",    label: "Tongue arc",    min: 20,   max: 90,  step: 5,    unit: "°" },
     { key: "curveBow",     label: "Curve bow",     min: 0.05, max: 0.9, step: 0.05, unit: "" },
     { key: "enemyCount",   label: "Rivals",        min: 0,    max: 6,   step: 1,    unit: "" },
     { key: "enemyHopEvery",label: "Rival pace",    min: 0.25, max: 2,   step: 0.05, unit: " s" },
@@ -996,8 +1000,14 @@
       while (delta > Math.PI) delta -= Math.PI * 2;
       while (delta < -Math.PI) delta += Math.PI * 2;
       var turn = clamp(delta, -CFG.steerRate * dt, CFG.steerRate * dt);
-      t.dir.x = Math.cos(cur + turn);
-      t.dir.y = Math.sin(cur + turn);
+      // Hold the heading inside the forward cone, so steering hard round the
+      // back simply pins the tip out to the side rather than dragging it
+      // behind the frog.
+      var fa = Math.atan2(m.face.y, m.face.x);
+      var lim = arcLimit();
+      var aim = fa + clamp(angleDiff(cur + turn, fa), -lim, lim);
+      t.dir.x = Math.cos(aim);
+      t.dir.y = Math.sin(aim);
     }
 
     t.prev.x = t.tip.x;
@@ -1008,6 +1018,12 @@
     var speed = (t.state === "extend") ? CFG.extendSpeed : CFG.sweepSpeed;
     t.tip.x += t.dir.x * speed * dt;
     t.tip.y += t.dir.y * speed * dt;
+
+    // Fold the tip back into the cone before the leash runs, not after: the
+    // leash pulls toward the mouth, which is inside the cone, so it can only
+    // ever keep it there.
+    var held = coneClamp(m, t.tip.x, t.tip.y);
+    t.tip.x = held.x; t.tip.y = held.y;
 
     // The leash: the tip can never be further from the mouth than the length
     // paid out, so shrinking the length physically drags the tip home.
@@ -1042,6 +1058,13 @@
     var p1x = o.x + m.face.x * bowIn, p1y = o.y + m.face.y * bowIn;
     var p2x = tip.x - t.dir.x * bowOut, p2y = tip.y - t.dir.y * bowOut;
 
+    // The outgoing control point is the one that can still bow the visible
+    // curve behind the frog even when both ends are in front of it. A cubic
+    // stays inside the hull of its control points, so folding this one into
+    // the cone puts the whole ribbon in front for good.
+    var p2 = coneClamp(m, p2x, p2y);
+    p2x = p2.x; p2y = p2.y;
+
     var nodes = t.nodes, N = nodes.length;
     for (var i = 0; i < N; i++) {
       var u = i / (N - 1), v = 1 - u;
@@ -1049,6 +1072,39 @@
       nodes[i].x = a * o.x + b * p1x + c * p2x + e * tip.x;
       nodes[i].y = a * o.y + b * p1y + c * p2y + e * tip.y;
     }
+  }
+
+  // --- keeping the tongue in front ------------------------------------
+  //
+  // A tongue that can swing all the way round ends up looping behind its own
+  // frog's head, which looks like a bug and reads like one. Everything the
+  // tongue is made of gets folded into a cone opening along the facing: the
+  // tip's heading, the tip itself, and the curve's outgoing control point.
+  // Clamping only the heading is not enough — a tip already out to one side
+  // keeps drifting round on its leash — and clamping only the tip is not
+  // enough either, because the control point can bow the visible curve back
+  // past the frog even when both endpoints are in front of it.
+
+  function arcLimit() { return CFG.tongueArc * Math.PI / 180; }
+
+  function angleDiff(a, b) {
+    var d = a - b;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    return d;
+  }
+
+  // Fold a point into the cone around m's facing, keeping its distance from m.
+  function coneClamp(m, px, py) {
+    var vx = px - m.x, vy = py - m.y;
+    var d = Math.hypot(vx, vy);
+    if (d < 1e-6) return { x: px, y: py };
+    var fa = Math.atan2(m.face.y, m.face.x);
+    var rel = angleDiff(Math.atan2(vy, vx), fa);
+    var lim = arcLimit();
+    if (Math.abs(rel) <= lim) return { x: px, y: py };
+    var a = fa + (rel < 0 ? -lim : lim);
+    return { x: m.x + Math.cos(a) * d, y: m.y + Math.sin(a) * d };
   }
 
   function tipVelocity(m, dt) {

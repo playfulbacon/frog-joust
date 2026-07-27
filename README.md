@@ -85,6 +85,16 @@ Instead:
    so the whole curve stays inside the leash — otherwise a bowed tongue quietly
    out-reaches its own maximum. That curve is the hit volume and the render
    path both, so what you see is exactly what hits.
+4. **It cannot get behind its own frog.** `tongueArc` (90° by default, and
+   never more) defines a cone opening along the facing, and *three* separate
+   things get folded into it — the tip's heading, the tip itself, and the
+   curve's outgoing control point. Each one alone is insufficient: clamping
+   only the heading lets a tip already out to one side keep drifting round on
+   its leash, and clamping only the tip still lets the control point bow the
+   visible curve back past the frog while both endpoints sit in front of it.
+   Since a cubic stays inside the hull of its control points, folding all three
+   in puts the whole ribbon in front for good. Steering hard round the back
+   pins the tongue out to the side instead of curling behind.
 
 Every mount owns one, player and rival alike. The only difference is where the
 steering comes from: your finger, or the direction of you.
@@ -178,6 +188,8 @@ reaching around the edge when the walls are up, that open water drowns you and
 a log does not, that
 riding a log to the end drowns you unless a second log overlaps, that carts
 kill, that traffic stays bounded over a minute, that no part of the tongue
-curve out-reaches `tongueMax`, that movement frees up the instant you release,
+curve out-reaches `tongueMax`, that steering the full 360° from all four
+facings never puts any part of the tongue behind the frog *and* still leaves a
+full sideways sweep available, that movement frees up the instant you release,
 that a rival closes and eventually unhorses you, and that every level loads and
 starts you somewhere dry.
