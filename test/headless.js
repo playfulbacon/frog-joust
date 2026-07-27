@@ -62,47 +62,65 @@ function step(seconds) {
 
 // --- 1. projection round-trips -----------------------------------------
 {
-  const w = FJ.unproj(FJ.CFG.tileW / 2, FJ.CFG.tileH / 2);
-  check(Math.abs(w.x - 1) < 1e-9 && Math.abs(w.y) < 1e-9,
-    "screen->world inverse: one tile right-down is world +x");
+  const w = FJ.unproj(FJ.CFG.cell, FJ.CFG.cell * 2);
+  check(Math.abs(w.x - 1) < 1e-9 && Math.abs(w.y - 2) < 1e-9,
+    "screen->world inverse is one-to-one in cells");
 }
 
-// --- 2. swipe snapping --------------------------------------------------
+// --- 2. swipe snapping is exactly four ways -----------------------------
 {
-  const up = FJ.snapDir(-1, -1);          // a straight-up screen flick
-  check(Math.abs(up.x - up.y) < 1e-9 && up.x < 0,
-    "an up-screen swipe resolves to a real diagonal, not a coin flip");
   const all = new Set();
-  let clean = true;
-  for (let a = 0; a < 360; a += 7) {
+  let clean = true, exact = true;
+  for (let a = 0; a < 360; a += 3) {
     const r = (a * Math.PI) / 180;
     const d = FJ.snapDir(Math.cos(r), Math.sin(r));
     if (!finite(d.x) || !finite(d.y)) clean = false;
-    // cos/sin leave 1e-16 crumbs where they should leave zero; round them away
-    // or a single direction shows up as both "0.000" and "-0.000".
-    const tidy = (v) => (Math.round(v * 1000) / 1000 + 0).toFixed(3);
-    all.add(`${tidy(d.x)},${tidy(d.y)}`);
+    // No rounding here on purpose: a grid game needs exactly +/-1 and 0, or
+    // the frog drifts off the cell centres over time.
+    if (Math.abs(d.x) + Math.abs(d.y) !== 1) exact = false;
+    if (!Number.isInteger(d.x) || !Number.isInteger(d.y)) exact = false;
+    all.add(`${d.x},${d.y}`);
   }
   check(clean, "every snapped direction is finite");
-  check(all.size === FJ.CFG.dirCount,
-    `every swipe angle lands on one of ${FJ.CFG.dirCount} directions (got ${all.size})`);
+  check(exact, "directions are exactly unit cardinals, no floating-point drift");
+  check(all.size === 4, `every swipe angle lands on one of 4 directions (got ${all.size})`);
+
+  const up = FJ.snapDir(...Object.values(FJ.unproj(0, -100)));
+  check(up.x === 0 && up.y === -1, "a straight-up swipe goes north");
+  const right = FJ.snapDir(...Object.values(FJ.unproj(100, 12)));
+  check(right.x === 1 && right.y === 0, "a mostly-right swipe goes east");
 }
 
-// --- 3. a hop travels exactly hopDist and lands flat ---------------------
+// --- 3. a hop covers whole cells and stays grid aligned -----------------
 {
   FJ.reset();
-  const s = FJ.state();
-  const from = { x: s.player.x, y: s.player.y };
+  const from = { x: FJ.state().player.x, y: FJ.state().player.y };
   FJ.requestHop({ x: 1, y: 0 });
   step(0.02);
   check(FJ.state().player.state === "hop", "a queued direction starts a hop");
   step(FJ.CFG.hopTime + 0.05);
   const p = FJ.state().player;
   const travelled = Math.hypot(p.x - from.x, p.y - from.y);
-  check(Math.abs(travelled - FJ.CFG.hopDist) < 1e-6,
-    `hop covers hopDist exactly (${travelled.toFixed(4)} tiles)`);
-  check(p.state === "idle" && Math.abs(p.z) < 2,
-    "hop ends idle and back on the ground plane");
+  check(Math.abs(travelled - FJ.CFG.hopCells) < 1e-9,
+    `hop covers hopCells exactly (${travelled} cells)`);
+  check(p.state === "idle" && p.z < 4, "hop ends idle and back on the floor");
+
+  // Walk a lap around the board and make sure we are still on cell centres.
+  const walk = [[1, 0], [0, 1], [0, 1], [-1, 0], [0, -1], [1, 0], [-1, 0]];
+  let drift = 0;
+  for (const [dx, dy] of walk) {
+    FJ.requestHop({ x: dx, y: dy });
+    step(FJ.CFG.hopTime + 0.06);
+    const q = FJ.state().player;
+    drift = Math.max(drift, Math.abs(q.x - Math.round(q.x)), Math.abs(q.y - Math.round(q.y)));
+  }
+  check(drift === 0, `after a lap the frog is still exactly on a cell (drift ${drift})`);
+
+  // And it cannot hop off the board.
+  for (let i = 0; i < 20; i++) { FJ.requestHop({ x: 1, y: 0 }); step(FJ.CFG.hopTime + 0.03); }
+  const edge = FJ.state().player;
+  const bound = Math.floor(FJ.CFG.arena / 2);
+  check(edge.x === bound, `the frog stops at the arena edge (x=${edge.x}, bound ${bound})`);
 }
 
 // --- 4. hops are locked out for the whole tongue cycle -------------------
@@ -142,7 +160,7 @@ function step(seconds) {
     maxLen = Math.max(maxLen, t.len);
     for (const n of t.nodes) {
       if (!finite(n.x) || !finite(n.y)) bad++;
-      // Measured from the mouth, which sits 0.42 tiles ahead of the frog.
+      // Measured from the mouth, which sits 0.42 cells ahead of the frog.
       const d = Math.hypot(n.x - m.x, n.y - m.y) - 0.42;
       overreach = Math.max(overreach, d - FJ.CFG.tongueMax);
     }
@@ -151,13 +169,13 @@ function step(seconds) {
   check(overreach < 1e-6,
     `no part of the curve out-reaches tongueMax (worst overshoot ${overreach.toFixed(6)})`);
   check(Math.abs(maxLen - FJ.CFG.tongueMax) < 1e-6,
-    `tongue reaches its full ${FJ.CFG.tongueMax} tiles and stops there`);
+    `tongue reaches its full ${FJ.CFG.tongueMax} cells and stops there`);
 
   const s = FJ.state();
   const tip = s.tongue.tip;
   const reach = Math.hypot(tip.x - s.player.x, tip.y - s.player.y);
   check(reach > FJ.CFG.tongueMax * 0.9,
-    `an unsteered tongue shoots out straight to full reach (tip ${reach.toFixed(2)} tiles out)`);
+    `an unsteered tongue shoots out straight to full reach (tip ${reach.toFixed(2)} cells out)`);
 }
 
 // --- 6. steering actually bends the arc ----------------------------------
@@ -175,7 +193,7 @@ function step(seconds) {
   const steered = shootWithSteer(-0.7071, 0.7071);
   const drift = Math.hypot(steered.tip.x - straight.tip.x, steered.tip.y - straight.tip.y);
   check(finite(drift) && drift > 0.5,
-    `steering carries the tip well off the straight path (${drift.toFixed(2)} tiles)`);
+    `steering carries the tip well off the straight path (${drift.toFixed(2)} cells)`);
 
   // A steered tongue must actually bow, not just pivot as a rigid stick.
   function bulge(sample) {
@@ -190,7 +208,7 @@ function step(seconds) {
   }
   check(bulge(straight) < 0.02, "an unsteered tongue draws a straight line");
   check(bulge(steered) > 0.3,
-    `a steered tongue draws a real curve (${bulge(steered).toFixed(2)} tiles of bow)`);
+    `a steered tongue draws a real curve (${bulge(steered).toFixed(2)} cells of bow)`);
 
   // Sampling must stay smooth — no kinks for the ribbon renderer to snag on.
   let maxStep = 0, minStep = Infinity;
@@ -208,7 +226,7 @@ function step(seconds) {
 {
   FJ.reset();
   const s = FJ.state();
-  s.enemies[0].x = 1.6; s.enemies[0].y = 1.6;   // dead ahead of the default facing
+  s.enemies[0].x = 0; s.enemies[0].y = 2;       // two cells due south, dead ahead
   for (let i = 1; i < s.enemies.length; i++) {  // clear the lane of everyone else
     s.enemies[i].x = -9; s.enemies[i].y = -9;
   }

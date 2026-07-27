@@ -12,9 +12,11 @@ before any of it gets built in Unity.
 Open `index.html`. It needs no build step and no server — a `file://` path
 works, as does any static host.
 
+The view is straight top-down on a checkerboard, one square per cell.
+
 | Input | Touch | Keyboard |
 | --- | --- | --- |
-| Hop | Swipe anywhere | Arrows / WASD |
+| Hop | Swipe anywhere (four ways) | Arrows / WASD |
 | Shoot the tongue | Press and hold | Hold Space |
 | Steer the tongue | Drag while holding | Arrows while holding Space |
 | Reel it in | Release | Release Space |
@@ -25,8 +27,9 @@ into Unity once something feels right.
 
 ## The rules being tested
 
-- A hop is a discrete, committed move — a fixed distance over a fixed time,
-  Frogger-style, not analogue walking. Height is cosmetic.
+- A hop is a discrete, committed move — a whole number of cells over a fixed
+  time, in one of four directions, Frogger-style rather than analogue walking.
+  The frog is always exactly on a cell centre.
 - **Holding** shoots the tongue; **releasing** reels it in. A quick tap still
   produces a full jab (`minExtend`).
 - The frog cannot move for the *whole* tongue cycle — extending and retracting
@@ -60,15 +63,20 @@ Instead:
 
 In Unity this is a tip transform plus a LineRenderer fed by the same sampled
 curve. Nothing here needs a third axis: all gameplay is on the ground plane and
-`z` only ever offsets the sprite, matching how the isometric camera will work.
+`z` is cosmetic — under a straight-down camera it is read as sprite scale plus a
+shrinking shadow rather than as a screen offset, which is what a hop actually
+looks like from above.
 
 ## Porting notes
 
-- All gameplay units are **tiles and seconds**. Pixels appear only in the
-  isometric projection (`proj` / `unproj`) and in cosmetic height.
-- A swipe is inverse-projected into world space *before* it is snapped to a
-  compass direction, so "up the screen" always means "away from the camera".
-  `dirCount` switches between 8-way and pure 4-way Frogger movement.
+- All gameplay units are **cells and seconds**. Pixels appear only in `proj` /
+  `unproj`, which top-down is just a multiply by `cell`.
+- Swipes snap to the four cardinals **by comparison, not by rounding an angle**
+  — the result is exactly `±1` and `0`, so repeated hops can never accumulate
+  floating-point drift off the cell centres. Hop targets are whole cells and the
+  clamp to the arena edge is a whole cell too.
+- Sprites are authored facing east and rotated into place, so four facings need
+  one drawing. `SPRITE` sets how much of a cell a mount fills.
 - Input reinterpretation matters: a press starts the tongue immediately, but if
   the finger travels past `swipeThreshold` within `swipeGrace` ms it is
   retroactively a swipe and the tongue is cancelled. Extension eases in over
@@ -83,8 +91,9 @@ node test/headless.js
 ```
 
 Runs the simulation with no browser: it pulls the script out of `index.html`,
-steps it at a fixed timestep, and checks the projection round-trips, that hops
-cover exactly `hopDist`, that movement stays locked for the whole tongue cycle,
-that no part of the curve out-reaches `tongueMax`, that an unsteered tongue is
-straight and a steered one actually bows, and that a hit unhorses exactly one
-rider.
+steps it at a fixed timestep, and checks that swipes resolve to exactly four
+unit cardinals, that a lap around the board leaves the frog with zero drift off
+the cell centres, that it stops at the arena edge, that movement stays locked
+for the whole tongue cycle, that no part of the curve out-reaches `tongueMax`,
+that an unsteered tongue is straight and a steered one actually bows, and that a
+hit unhorses exactly one rider.
