@@ -54,9 +54,25 @@ function step(seconds) {
 }
 const R = () => Math.floor(FJ.CFG.arena / 2);
 
-// Park the rivals where they cannot interfere with a test.
+// Park the rivals where they cannot interfere with a test. Clearing `rider`
+// matters as much as `dead`: the game only ever sets the two together, and a
+// benched rival that still counts as mounted is still a target the tongue can
+// catch at whatever random cell it spawned on.
 function benchRivals() {
-  for (const e of FJ.state().enemies) if (e) { e.dead = true; e.respawnIn = 1e6; }
+  for (const e of FJ.state().enemies) {
+    if (e) { e.dead = true; e.rider = false; e.respawnIn = 1e6; }
+  }
+}
+
+// Bench everyone, then put one rival back on the board at a known cell.
+function loneRival(x, y) {
+  benchRivals();
+  const foe = FJ.state().enemies[0];
+  foe.dead = false;
+  foe.rider = true;
+  foe.x = x; foe.y = y;
+  foe.state = "idle";
+  return foe;
 }
 // Empty the board AND stop the lanes producing more, so a test sees only the
 // traffic it put there itself.
@@ -450,11 +466,9 @@ function freshLevel(i = 0) {
   clearHazards();
   const s = FJ.state();
   // One rival, parked a few cells from a stationary player.
-  for (let i = 1; i < s.enemies.length; i++) if (s.enemies[i]) { s.enemies[i].dead = true; s.enemies[i].respawnIn = 1e6; }
-  const foe = s.enemies[0];
-  foe.dead = false; foe.rider = true;
-  foe.x = 4; foe.y = -R() + 1;
+  const foe = loneRival(4, -R() + 1);
   s.player.x = 0; s.player.y = -R() + 1;
+  s.player.safeT = 0;
   s.player.dying = null;
   FJ.input.holding = false;
   FJ.input.consumed = true;
@@ -474,10 +488,7 @@ function freshLevel(i = 0) {
   FJ.loadLevel(0);
   clearHazards();
   const s = FJ.state();
-  for (let i = 1; i < s.enemies.length; i++) if (s.enemies[i]) { s.enemies[i].dead = true; s.enemies[i].respawnIn = 1e6; }
-  const foe = s.enemies[0];
-  foe.dead = false; foe.rider = true;
-  foe.x = 0; foe.y = -R() + 3;          // two cells toward the camera
+  const foe = loneRival(0, -R() + 3);   // two cells toward the camera
   foe.hopTimer = 1e6; foe.restTimer = 1e6;   // hold still, do not fight back
   s.player.x = 0; s.player.y = -R() + 1;
   s.player.face = { x: 0, y: 1 };
