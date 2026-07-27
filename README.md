@@ -50,6 +50,9 @@ carry their own traffic. Adding one is a few lines in `LEVELS`.
 
 - A hop is a discrete, committed move — a whole number of cells over a fixed
   time, in one of four directions, Frogger-style rather than analogue walking.
+- **One toad to a square.** Hopping at an occupied cell turns you to face it —
+  which is how you line a shot up on a neighbour — but you bounce on the spot
+  instead of climbing over them.
 - **Holding** shoots the tongue; **releasing** reels it in. A quick tap still
   produces a full jab (`minExtend`). At full stretch it turns for home on its
   own — holding longer buys nothing — and **it changes colour on the way back**,
@@ -78,6 +81,10 @@ carry their own traffic. Adding one is a few lines in `LEVELS`.
   behind him.
 - Being run down by a cart throws the same burst, and pitches the knight the
   way the cart was travelling.
+- **Every** death takes the helm off: tongue, cart or drowning, yours or
+  theirs. It skips clear of the body, so a knight who drowns may still leave
+  his helm on the bank. Your own is worth collecting again if you dare go back
+  for it.
 - Their **helm comes off** and stays on the field. Ride over it to claim it.
   Helms obey the same world rules as everyone else: they ride logs, and they
   sink in open water, so a knight unhorsed over the stream may cost you the
@@ -247,7 +254,10 @@ available, that the tongue turns for home by itself at full stretch and is
 still steerable afterwards, that a struck knight is always thrown away from the
 blow and never back into it, that a helm drops and can be collected for points
 and sinks if it lands in open water, that two tongues meeting head-on both turn
-back with neither knight unhorsed and leave a burst between them, that the
+back with neither knight unhorsed and leave a burst between them, that no two
+mounts ever share a square across 45 simulated seconds of five rivals hunting,
+dying and respawning, that a helm comes off for a drowning and a cart strike
+as well as a tongue, that the
 combo pays 1x/2x/3x within one extend and resets afterwards, that helms flung
 hard off all eight edges and corners all stay on the board and none goes
 missing, that a rival crosses the field to steal a helm, that lives run down

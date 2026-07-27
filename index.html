@@ -948,9 +948,18 @@
       if (laneAt(y).type !== "grass") continue;
       var x = Math.floor(Math.random() * CFG.arena) - R;
       if (awayFrom && wrapDist({ x: x, y: y }, awayFrom) < minDist) continue;
+      if (cellOccupied(x, y, null)) continue;
       return { x: x, y: y };
     }
-    return { x: 0, y: -bound() };
+    // Random darts failed; sweep for anywhere dry and empty rather than
+    // dropping a rival on top of somebody.
+    for (var gy = -R; gy <= R; gy++) {
+      if (lanes[gy + R].type !== "grass") continue;
+      for (var gx = -R; gx <= R; gx++) {
+        if (!cellOccupied(gx, gy, null)) return { x: gx, y: gy };
+      }
+    }
+    return { x: 0, y: -R };
   }
 
   function spawnEnemy(i) {
@@ -962,6 +971,29 @@
     // in one movement, which reads as being ambushed by a spawn.
     m.restTimer = CFG.enemyRest;
     enemies[i] = m;
+  }
+
+  // --- one toad to a cell ----------------------------------------------
+  //
+  // A mount holds the square it is standing on, and while it is in the air it
+  // holds BOTH the one it left and the one it is heading for. Without the
+  // second, two frogs aimed at the same square would each find it empty on the
+  // frame they launched and land on top of each other.
+  function cellOf(v) { return wrapCoord(Math.round(v)); }
+
+  function cellOccupied(cx, cy, except) {
+    var mounts = allMounts();
+    for (var i = 0; i < mounts.length; i++) {
+      var m = mounts[i];
+      if (m === except || m.dead || m.dying) continue;
+      if (m.state === "hop" && m.hop) {
+        if (cellOf(m.hop.fx) === cx && cellOf(m.hop.fy) === cy) return true;
+        if (cellOf(m.hop.tx) === cx && cellOf(m.hop.ty) === cy) return true;
+      } else if (cellOf(m.x) === cx && cellOf(m.y) === cy) {
+        return true;
+      }
+    }
+    return false;
   }
 
   function mouth(m) {
@@ -1450,6 +1482,13 @@
       tx = clamp(tx, -R, R);
       ty = clamp(ty, -R, R);
     }
+    // Someone already has that square. You still turn to face them — which is
+    // how you line a shot up on a neighbour — but you bounce on the spot
+    // instead of climbing over them.
+    if (cellOccupied(cellOf(tx), cellOf(ty), m)) {
+      tx = Math.round(m.x);
+      ty = Math.round(m.y);
+    }
     m.hop = { fx: m.x, fy: m.y, tx: tx, ty: ty, t: 0 };
   }
 
@@ -1538,22 +1577,32 @@
     cancelTongue(player);
     input.hopQueue = null;
     input.consumed = true;
+    // However a knight goes down, the helm comes off with him. Drowning is
+    // the one case where he does not tumble clear - he goes under with his
+    // toad - but the helm still skips away and may well land dry.
+    var fall = dir || { x: Math.random() * 2 - 1, y: Math.random() * 2 - 1 };
     if (cause === "water") {
       sfx.splash();
       ripples.push({ x: player.x, y: player.y, t: 0 });
     } else if (cause === "car") {
       sfx.squash();
       addSpark(player.x, player.y, "impact");
-      throwRider(player, dir || { x: 0, y: -1 }, 180);
+      throwRider(player, fall, 180);
     } else {
       sfx.hit();
-      throwRider(player, dir || { x: 0, y: 1 }, 240);
+      throwRider(player, fall, 240);
     }
+    dropHelmet(player, fall);
     setScore();
   }
 
   function respawnPlayer() {
-    var at = { x: 0, y: spawnRow() };
+    // Home square if it is free, otherwise the nearest empty one along the row.
+    var row = spawnRow(), R = bound(), at = { x: 0, y: row };
+    for (var d = 0; d <= R; d++) {
+      if (!cellOccupied(wrapCoord(d), row, player)) { at.x = wrapCoord(d); break; }
+      if (!cellOccupied(wrapCoord(-d), row, player)) { at.x = wrapCoord(-d); break; }
+    }
     player.x = at.x; player.y = at.y;
     player.z = 0;
     player.face = { x: 0, y: -1 };
@@ -1597,12 +1646,15 @@
                       (laneAt(m.y).type === "water" && !supportUnder(m));
         var struck = drowned ? null : carHitting(m);
         if (drowned || struck) {
+          var away = struck ? { x: struck.vx > 0 ? 1 : -1, y: 0 }
+                            : { x: Math.random() * 2 - 1, y: Math.random() * 2 - 1 };
           if (drowned) { ripples.push({ x: m.x, y: m.y, t: 0 }); sfx.splash(); }
           else {
             sfx.squash();
             addSpark(m.x, m.y, "impact");
-            throwRider(m, { x: struck.vx > 0 ? 1 : -1, y: 0 }, 180);
+            throwRider(m, away, 180);
           }
+          dropHelmet(m, away);
           m.dead = true;
           m.rider = false;
           m.respawnIn = CFG.respawnDelay;
@@ -1687,6 +1739,9 @@
   function canStandAt(m, dir) {
     var tx = wrapCoord(Math.round(m.x) + dir.x * CFG.hopCells);
     var ty = wrapCoord(Math.round(m.y) + dir.y * CFG.hopCells);
+    // Taken squares are not options — a rival that tried anyway would just
+    // bounce on the spot and look stuck.
+    if (cellOccupied(tx, ty, m)) return false;
     if (laneAt(ty).type !== "water") return true;
     for (var i = 0; i < hazards.length; i++) {
       var z = hazards[i];
@@ -2828,6 +2883,7 @@
         };
       },
       startTongue: startTongue, requestHop: requestHop, snapDir: snapDir,
+      startHopFor: startHop, cellOccupied: cellOccupied,
       unproj: unproj, proj: proj, wrapCoord: wrapCoord, wrapDelta: wrapDelta,
       supportUnder: supportUnder, laneAt: laneAt,
       run: function (on) { running = on; }

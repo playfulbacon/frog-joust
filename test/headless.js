@@ -999,6 +999,125 @@ function freshLevel(i = 0) {
     `all 8 are accounted for (${FJ.state().helmets.length} lying about, ${claimed} claimed)`);
 }
 
+// --- 20. one toad to a cell ----------------------------------------------
+{
+  FJ.loadLevel(PLAIN);
+  clearHazards();
+  const s = FJ.state();
+  const foe = loneRival(1, 0);
+  foe.hopTimer = 1e6; foe.restTimer = 1e6;      // stand perfectly still
+  s.player.x = 0; s.player.y = 0;
+  s.player.dying = null; s.player.safeT = 1e6;
+
+  FJ.requestHop({ x: 120, y: 0 });              // straight at the rival
+  step(FJ.CFG.hopTime + 0.06);
+  const p = FJ.state().player;
+  check(p.x === 0 && p.y === 0, `you cannot hop onto an occupied square (x=${p.x})`);
+  check(p.face.x === 1 && p.face.y === 0,
+    "but you do turn to face them, so a neighbour can still be lined up");
+
+  // The square frees up the moment they are gone.
+  foe.dead = true; foe.rider = false; foe.respawnIn = 1e6;
+  FJ.requestHop({ x: 120, y: 0 });
+  step(FJ.CFG.hopTime + 0.06);
+  check(FJ.state().player.x === 1, "and the square opens up once it is vacated");
+}
+
+{
+  // Two mounts aimed at the SAME empty square from opposite sides. Whoever
+  // launches first must claim it; the other has to bounce.
+  FJ.loadLevel(PLAIN);
+  clearHazards();
+  const s = FJ.state();
+  const foe = loneRival(2, 0);
+  foe.hopTimer = 1e6; foe.restTimer = 1e6;
+  s.player.x = 0; s.player.y = 0;
+  s.player.dying = null; s.player.safeT = 1e6;
+
+  FJ.requestHop({ x: 120, y: 0 });              // player -> (1,0)
+  step(DT);
+  FJ.startHopFor(foe, { x: -1, y: 0 });         // rival -> (1,0) too
+  step(FJ.CFG.hopTime + 0.08);
+
+  const px = FJ.state().player.x, fx = FJ.state().enemies[0].x;
+  check(px !== fx, `they do not land on the same square (player ${px}, rival ${fx})`);
+  check(px === 1 && fx === 2, "the one already in the air keeps the square");
+}
+
+{
+  // And the invariant has to survive real play: rivals hunting, dying and
+  // respawning for a while, with the player standing in the middle of it.
+  FJ.loadLevel(PLAIN);
+  const s = FJ.state();
+  s.player.x = 0; s.player.y = 0;
+  FJ.CFG.enemyCount = 5;
+  while (s.enemies.length < 5) s.enemies.push(null);
+
+  let clash = null;
+  for (let i = 0; i < 60 * 45 && !clash; i++) {
+    step(1 / 60);
+    const st = FJ.state();
+    const seen = new Map();
+    for (const m of [st.player].concat(st.enemies)) {
+      if (!m || m.dead || m.dying) continue;
+      if (m.state === "hop") continue;           // mid-air is between squares
+      const key = `${Math.round(m.x)},${Math.round(m.y)}`;
+      if (seen.has(key)) { clash = key; break; }
+      seen.set(key, m);
+    }
+  }
+  check(clash === null,
+    clash ? `two mounts shared cell ${clash}` : "45 seconds of play, never two on one square");
+  FJ.CFG.enemyCount = 3;
+}
+
+// --- 21. the helm comes off however you go -------------------------------
+{
+  // Drowned.
+  freshLevel(MILLRACE);
+  clearHazards();
+  const waterRow = FJ.state().lanes.findIndex(l => l.type === "water") - R();
+  const s = FJ.state();
+  s.helmets.length = 0;
+  s.player.x = 0; s.player.y = waterRow; s.player.state = "idle";
+  step(0.1);
+  check(FJ.state().player.dying === "water", "drowning, as set up");
+  check(FJ.state().helmets.length === 1, "a drowned knight's helm comes off too");
+  step(2.2);
+}
+
+{
+  // Run down.
+  freshLevel(ROAD);
+  clearHazards();
+  const roadRow = FJ.state().lanes.findIndex(l => l.type === "road") - R();
+  const s = FJ.state();
+  s.helmets.length = 0;
+  s.player.x = 0; s.player.y = roadRow;
+  s.player.state = "idle"; s.player.dying = null;
+  s.hazards.push({ kind: "car", x: -3, y: roadRow, len: 1.6, vx: 6, sinking: 0, tint: 0 });
+  step(0.6);
+  check(FJ.state().player.dying === "car", "run down, as set up");
+  check(FJ.state().helmets.length === 1, "and a flattened knight's helm comes off");
+  step(2.2);
+}
+
+{
+  // A rival taken by the traffic leaves one behind as well.
+  freshLevel(ROAD);
+  clearHazards();
+  const roadRow = FJ.state().lanes.findIndex(l => l.type === "road") - R();
+  const s = FJ.state();
+  s.helmets.length = 0;
+  const foe = loneRival(0, roadRow);
+  foe.hopTimer = 1e6; foe.restTimer = 1e6;
+  s.player.x = -R(); s.player.y = R(); s.player.dying = null; s.player.safeT = 1e6;
+  s.hazards.push({ kind: "car", x: -3, y: roadRow, len: 1.6, vx: 6, sinking: 0, tint: 0 });
+  step(0.6);
+  check(FJ.state().enemies[0].dead, "the rival is run down, as set up");
+  check(FJ.state().helmets.length === 1, "and drops a helm for you to go and fetch");
+}
+
 // --- 13. every level loads and is survivable to stand on ----------------
 {
   for (let i = 0; i < FJ.LEVELS.length; i++) {
