@@ -307,9 +307,10 @@
   </div>
 
   <p class="hint" id="fj-hint">
-    <b>Swipe</b> anywhere to hop<br>
+    <b>Swipe</b> to hop &nbsp;·&nbsp; up is forward<br>
     <b>Press and hold</b> to shoot the tongue<br>
-    drag to steer it &nbsp;·&nbsp; <b>release</b> to reel in and move on
+    drag to steer it &nbsp;·&nbsp; <b>release</b> to reel in<br>
+    you are free to move the moment you let go
   </p>
 
   <div class="drawer" id="fj-drawer" aria-label="Feel tuning">
@@ -389,7 +390,12 @@
 
   var TONGUE_NODES = 26;   // curve resolution — visual fidelity, not feel
   var FIXED_DT = 1 / 120;  // physics step
-  var ISO = 0.5;           // 2:1 dimetric — a cell is CELL wide, CELL*ISO tall
+  // Foreshortening: a cell is CELL wide and CELL*ISO tall. This is the board
+  // squared up to the screen rather than stood on a corner — rows run across,
+  // columns run up and down, and the camera is simply tilted back. 0.5 is a
+  // true 2:1 board seen this way; a little more is a slightly steeper camera.
+  var ISO = 0.6;
+  var LIP = 0.4;           // depth of the platform's near face, in cells
   var TONGUE_Z = 15;       // px the tongue floats above the ground plane
 
   // =====================================================================
@@ -490,35 +496,33 @@
   function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
   function lerp(a, b, t) { return a + (b - a) * t; }
 
-  // Isometric: each cell is a diamond. z is cosmetic height in px.
+  // The board's axes are square to the screen: +x is right, +y is toward the
+  // camera. Only the vertical is foreshortened. z is cosmetic height in px.
   function proj(wx, wy, z) {
-    return {
-      x: (wx - wy) * CFG.cell * 0.5,
-      y: (wx + wy) * CFG.cell * ISO * 0.5 - (z || 0)
-    };
+    return { x: wx * CFG.cell, y: wy * CFG.cell * ISO - (z || 0) };
   }
 
-  // Screen delta -> world delta, so a swipe is read in the world's axes rather
-  // than the screen's — a flick up and to the right is always north-east.
+  // Screen delta -> world delta. Undoing the foreshortening here is what makes
+  // a dragged tongue follow the finger's angle ON SCREEN, which is the only
+  // angle the player can actually see.
   function unproj(sx, sy) {
-    var h = CFG.cell * ISO;
-    return {
-      x: sx / CFG.cell + sy / h,
-      y: sy / h - sx / CFG.cell
-    };
+    return { x: sx / CFG.cell, y: sy / (CFG.cell * ISO) };
   }
 
   // Direction a world vector points, normalized in screen space.
   function projDir(wx, wy) {
-    var sx = (wx - wy) * CFG.cell * 0.5;
-    var sy = (wx + wy) * CFG.cell * ISO * 0.5;
-    var d = Math.hypot(sx, sy) || 1;
-    return { x: sx / d, y: sy / d };
+    var d = Math.hypot(wx, wy * ISO) || 1;
+    return { x: wx / d, y: (wy * ISO) / d };
   }
 
-  // Snap to one of the four cardinals. Done by comparison rather than by
-  // rounding an angle, so the result is exactly ±1 with no floating-point
-  // crumbs — that is what keeps the frog perfectly cell-aligned forever.
+  // Snap to one of the four cardinals by comparison rather than by rounding an
+  // angle, so the result is exactly ±1 with no floating-point crumbs — that is
+  // what keeps the frog perfectly cell-aligned forever.
+  //
+  // Hops feed this the RAW screen delta, not an unprojected one. The board's
+  // axes line up with the screen's, so up is forward and right is right; and
+  // snapping in screen space keeps the boundary between directions at a true
+  // 45 degrees, instead of biasing toward the squashed axis.
   function snapDir(wx, wy) {
     if (Math.abs(wx) >= Math.abs(wy)) return { x: wx < 0 ? -1 : 1, y: 0 };
     return { x: 0, y: wy < 0 ? -1 : 1 };
@@ -551,10 +555,11 @@
       makeMount(3, 3, "#c2761f", "#e5cfa0"),
       makeMount(-3, 3, "#3f8f86", "#e5cfa0")
     ];
-    // Face each rival at the middle of the board, on a cardinal.
-    for (var i = 0; i < enemies.length; i++) {
-      enemies[i].face = snapDir(-enemies[i].x, -enemies[i].y);
-    }
+    // One rival facing each way, so every facing is on screen to look at
+    // (snapping "toward the centre" would tie on the diagonal and point them
+    // all east or west).
+    var faces = [{ x: 0, y: 1 }, { x: -1, y: 0 }, { x: 0, y: -1 }, { x: 1, y: 0 }];
+    for (var i = 0; i < enemies.length; i++) enemies[i].face = faces[i];
     debris = [];
     ko = 0;
 
@@ -633,7 +638,7 @@
       // Only kill a tongue THIS press started. One that is already reeling in
       // belongs to the previous shot and must be left to finish.
       if (tongue.state === "extend") cancelTongue();
-      requestHop(unproj(dx, dy));
+      requestHop({ x: dx, y: dy });   // raw screen delta: up is forward
       return;
     }
     if (input.holding) {
@@ -659,6 +664,8 @@
     w: [0, -1], s: [0, 1], a: [-1, 0], d: [1, 0]
   };
 
+  // Screen-space vector from the held keys; callers decide whether to snap it
+  // (hopping) or unproject it (steering).
   function keyVector() {
     var sx = 0, sy = 0;
     for (var key in input.keys) {
@@ -667,7 +674,7 @@
       if (v) { sx += v[0]; sy += v[1]; }
     }
     if (!sx && !sy) return null;
-    return unproj(sx, sy);
+    return { x: sx, y: sy };
   }
 
   // =====================================================================
@@ -928,8 +935,11 @@
       var kv = keyVector();
       if (input.keys[" "]) {
         if (kv) {
-          var d = Math.hypot(kv.x, kv.y) || 1;
-          input.steer.x = kv.x / d; input.steer.y = kv.y / d;
+          // Steering is unprojected, same as a drag: the tongue goes where the
+          // key points on screen.
+          var w = unproj(kv.x, kv.y);
+          var d = Math.hypot(w.x, w.y) || 1;
+          input.steer.x = w.x / d; input.steer.y = w.y / d;
         } else { input.steer.x = 0; input.steer.y = 0; }
       }
     }
@@ -951,7 +961,13 @@
     viewH = canvas.clientHeight || window.innerHeight;
     canvas.width = Math.round(viewW * dpr);
     canvas.height = Math.round(viewH * dpr);
-    scale = clamp(Math.min(viewW, viewH) / 430, 0.62, 1.9);
+    // Frame the whole arena. Squared up to the screen the board is much wider
+    // than it is tall, so the two axes have to be measured separately — sizing
+    // off the smaller viewport dimension alone over-zooms and clips the rivals
+    // at the left and right edges.
+    var wantW = (CFG.arena + 0.6) * CFG.cell;
+    var wantH = (CFG.arena + 0.6) * CFG.cell * ISO + CFG.cell * LIP + 40;
+    scale = clamp(Math.min(viewW / wantW, viewH / wantH), 0.3, 2.2);
   }
 
   // Follow the frog, but never past the edge of the board: on an axis where
@@ -961,7 +977,7 @@
     var p = proj(player.x, player.y, 0);
     var halfW = viewW / (2 * scale), halfH = viewH / (2 * scale);
     var boardW = (CFG.arena + 1) * CFG.cell * 0.5;
-    var boardH = (CFG.arena + 1) * CFG.cell * ISO * 0.5;
+    var boardH = (CFG.arena + 1) * CFG.cell * ISO * 0.5 + CFG.cell * LIP;
     var limX = Math.max(0, boardW - halfW);
     var limY = Math.max(0, boardH - halfH);
     return { x: clamp(p.x, -limX, limX), y: clamp(p.y, -limY, limY) };
@@ -980,11 +996,11 @@
 
     drawArena();
 
-    // Further down the board means further from the camera: sort by x+y.
+    // Rows run across the screen, so depth is just the row: draw back to front.
     var order = [];
-    for (var i = 0; i < enemies.length; i++) order.push({ d: enemies[i].x + enemies[i].y, m: enemies[i], kind: "mount" });
-    order.push({ d: player.x + player.y, m: player, kind: "mount" });
-    for (var j = 0; j < debris.length; j++) order.push({ d: debris[j].x + debris[j].y, m: debris[j], kind: "debris" });
+    for (var i = 0; i < enemies.length; i++) order.push({ d: enemies[i].y, m: enemies[i], kind: "mount" });
+    order.push({ d: player.y, m: player, kind: "mount" });
+    for (var j = 0; j < debris.length; j++) order.push({ d: debris[j].y, m: debris[j], kind: "debris" });
     order.sort(function (a, b) { return a.d - b.d; });
 
     for (var n = 0; n < order.length; n++) {
@@ -998,48 +1014,38 @@
     drawVignette();
   }
 
-  // One diamond per cell. A cell centre sits at integer world coords, so its
-  // diamond runs from -0.5 to +0.5 — the frog always lands dead centre.
+  // One rectangle per cell — squashed by ISO because the camera is tilted
+  // back. A cell centre sits at integer world coords, so its square runs from
+  // -0.5 to +0.5 and the frog always lands dead centre.
   function drawArena() {
     var R = Math.floor(CFG.arena / 2);
-    var hw = CFG.cell * 0.5, hh = CFG.cell * ISO * 0.5;
+    var W = CFG.cell, H = CFG.cell * ISO;
+    var left = (-R - 0.5) * W, top = (-R - 0.5) * H;
+    var wide = (2 * R + 1) * W, tall = (2 * R + 1) * H;
 
-    // Bank around the board, so the arena reads as a raised island.
-    var rim = R + 1.15;
-    var corners = [proj(-rim, -rim, 0), proj(rim, -rim, 0), proj(rim, rim, 0), proj(-rim, rim, 0)];
-    ctx.beginPath();
-    ctx.moveTo(corners[0].x, corners[0].y);
-    for (var c = 1; c < 4; c++) ctx.lineTo(corners[c].x, corners[c].y);
-    ctx.closePath();
+    // Ground beyond the board, and a lip of it behind the far edge.
     ctx.fillStyle = "#16292b";
-    ctx.fill();
+    ctx.fillRect(left - W * 0.7, top - H * 1.2, wide + W * 1.4, tall + H * 2.4);
 
     for (var gx = -R; gx <= R; gx++) {
       for (var gy = -R; gy <= R; gy++) {
-        var p = proj(gx, gy, 0);
-        ctx.beginPath();
-        ctx.moveTo(p.x, p.y - hh);
-        ctx.lineTo(p.x + hw, p.y);
-        ctx.lineTo(p.x, p.y + hh);
-        ctx.lineTo(p.x - hw, p.y);
-        ctx.closePath();
         ctx.fillStyle = ((gx + gy) & 1) ? "#2b5f40" : "#356e45";
-        ctx.fill();
-        ctx.strokeStyle = "rgba(6,20,18,0.22)";
-        ctx.lineWidth = 1;
-        ctx.stroke();
+        ctx.fillRect((gx - 0.5) * W, (gy - 0.5) * H, W + 0.5, H + 0.5);
       }
     }
 
-    ctx.beginPath();
-    var e0 = proj(-R - 0.5, -R - 0.5, 0), e1 = proj(R + 0.5, -R - 0.5, 0),
-        e2 = proj(R + 0.5, R + 0.5, 0), e3 = proj(-R - 0.5, R + 0.5, 0);
-    ctx.moveTo(e0.x, e0.y); ctx.lineTo(e1.x, e1.y);
-    ctx.lineTo(e2.x, e2.y); ctx.lineTo(e3.x, e3.y);
-    ctx.closePath();
+    // The near face of the platform. Under a tilted camera this is the only
+    // side you can see, and it is what stops the board reading as flat paper.
+    var lip = CFG.cell * LIP;
+    var face = ctx.createLinearGradient(0, top + tall, 0, top + tall + lip);
+    face.addColorStop(0, "#1d422e");
+    face.addColorStop(1, "#102319");
+    ctx.fillStyle = face;
+    ctx.fillRect(left, top + tall, wide, lip);
+
     ctx.strokeStyle = "rgba(233,239,228,0.16)";
     ctx.lineWidth = 2;
-    ctx.stroke();
+    ctx.strokeRect(left, top, wide, tall);
   }
 
   // Shadow stays on the ground while the sprite lifts away from it — the gap
@@ -1114,20 +1120,35 @@
       // Higher on screen is further away: draw that one first and a shade
       // smaller, or a side-on toad ends up with two identical floating eyes.
       eyes.sort(function (a, b) { return a.y - b.y; });
+      // Hopping away from the camera you are looking at the back of its head,
+      // so the eyes become plain domes and the mouth is out of sight.
+      var away = m.face.y < 0;
       for (var e = 0; e < eyes.length; e++) {
         var r = e === 0 ? 4.4 : 5.4;
-        ctx.fillStyle = "#f3f6e8";
-        circle(eyes[e].x, eyes[e].y, r);
-        ctx.fillStyle = "#11201c";
-        circle(eyes[e].x + f.x * 1.8, eyes[e].y + f.y * 1.2, r * 0.48);
+        if (away) {
+          ctx.fillStyle = "#4e8f50";
+          ctx.strokeStyle = "rgba(9,26,18,0.5)";
+          ctx.lineWidth = 1.6;
+          ctx.beginPath();
+          ctx.ellipse(eyes[e].x, eyes[e].y, r, r * 0.9, 0, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+        } else {
+          ctx.fillStyle = "#f3f6e8";
+          circle(eyes[e].x, eyes[e].y, r);
+          ctx.fillStyle = "#11201c";
+          circle(eyes[e].x + f.x * 1.8, eyes[e].y + f.y * 1.2, r * 0.48);
+        }
       }
 
-      // mouth line, where the tongue leaves
-      ctx.strokeStyle = "rgba(15,32,26,0.55)";
-      ctx.lineWidth = 1.6;
-      ctx.beginPath();
-      ctx.arc(f.x * 12, -23 + f.y * 5, 8, 0.15 * Math.PI, 0.85 * Math.PI);
-      ctx.stroke();
+      if (!away) {
+        // mouth line, where the tongue leaves
+        ctx.strokeStyle = "rgba(15,32,26,0.55)";
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.arc(f.x * 12, -23 + f.y * 5, 8, 0.15 * Math.PI, 0.85 * Math.PI);
+        ctx.stroke();
+      }
     }
 
     // Who is nearer the camera depends on which way the toad is pointing.
@@ -1422,7 +1443,7 @@
       } else if (KEY_VEC[key]) {
         if (!input.keys[" "]) {
           var v = KEY_VEC[key];
-          requestHop(unproj(v[0], v[1]));
+          requestHop({ x: v[0], y: v[1] });
           fadeHint();
         }
         e.preventDefault();

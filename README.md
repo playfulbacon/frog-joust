@@ -12,7 +12,10 @@ before any of it gets built in Unity.
 Open `index.html`. It needs no build step and no server — a `file://` path
 works, as does any static host.
 
-The view is isometric, on a checkerboard where one diamond is one cell.
+The camera is tilted back over a checkerboard, one square per cell, with the
+board squared up to the screen rather than stood on its corner: rows run across,
+columns run up and down. Swipe up to go forward, down to come back, left and
+right to go left and right.
 
 | Input | Touch | Keyboard |
 | --- | --- | --- |
@@ -76,22 +79,27 @@ looks like from above.
 ## Porting notes
 
 - All gameplay units are **cells and seconds**. Pixels appear only in `proj` /
-  `unproj`. `ISO` is the foreshortening: a cell is `cell` wide and `cell * ISO`
-  tall, so 0.5 is the classic 2:1 diamond.
-- A swipe is inverse-projected into world space *before* it is snapped, so a
-  flick up and to the right is always north-east regardless of the tilt. The
-  snap is **by comparison, not by rounding an angle** — the result is exactly
-  `±1` and `0`, so repeated hops can never accumulate floating-point drift off
-  the cell centres. Hop targets are whole cells and the clamp to the arena edge
-  is a whole cell too.
-- Under the tilt, a swipe straight up the screen sits exactly on the boundary
-  between two world axes. It resolves deterministically and leaning even
-  slightly either way picks that side — which is what you want, since a real
-  finger is never exactly vertical.
-- The camera follows the frog but stops at the board's edge, so on an axis
-  where the whole arena already fits it simply centres and stays put.
-- Whether the rider draws in front of the toad's head depends on the facing.
-  Get it backwards and the knight eats one of the toad's eyes.
+  `unproj`. `ISO` is the foreshortening — a cell is `cell` wide and
+  `cell * ISO` tall — and it is the only thing separating this from a plain
+  top-down view. `0.5` is a true 2:1 board seen square-on; higher is a steeper
+  camera. In Unity this is the camera's pitch, nothing more.
+- **Hops snap the raw screen delta; steering unprojects it.** Those are
+  deliberately different. A hop should go where the finger pointed on screen,
+  so its boundary between directions sits at a true 45°; unprojecting first
+  would bias it toward the squashed axis, and a swipe that looks 45° would hop
+  forward. Steering *is* unprojected, so a dragged tongue follows the finger's
+  on-screen angle — the only angle the player can see.
+- The snap is **by comparison, not by rounding an angle** — the result is
+  exactly `±1` and `0`, so repeated hops can never accumulate floating-point
+  drift off the cell centres. Hop targets are whole cells and the clamp to the
+  arena edge is a whole cell too.
+- The whole arena is framed on screen. Squared up, the board is much wider than
+  it is tall, so the fit has to measure both axes — sizing off the smaller
+  viewport dimension alone over-zooms and clips the rivals at the edges. The
+  camera still follows and stops at the board edge if you shrink the view.
+- The toad shows the back of its head when it hops away from the camera, and
+  whether the rider draws in front of the head depends on the facing. Get that
+  backwards and the knight eats one of the toad's eyes.
 - Input reinterpretation matters: a press starts the tongue immediately, but if
   the finger travels past `swipeThreshold` within `swipeGrace` ms it is
   retroactively a swipe and the tongue is cancelled. Extension eases in over

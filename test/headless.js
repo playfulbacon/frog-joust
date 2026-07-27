@@ -61,7 +61,7 @@ function step(seconds) {
   }
 }
 
-// --- 1. the isometric projection round-trips ----------------------------
+// --- 1. the projection round-trips and is square to the screen ----------
 {
   let worst = 0;
   for (const [wx, wy] of [[1, 0], [0, 1], [-3, 2], [5, -5], [0.5, 0.25]]) {
@@ -71,10 +71,13 @@ function step(seconds) {
   }
   check(worst < 1e-12, `world -> screen -> world is exact (worst error ${worst})`);
 
-  const one = FJ.proj(1, 0, 0);
-  check(Math.abs(one.x - FJ.CFG.cell / 2) < 1e-9 &&
-        Math.abs(one.y - (FJ.CFG.cell * FJ.ISO) / 2) < 1e-9,
-    "one cell east lands half a cell right and half a cell-height down");
+  // Rows must run flat across the screen and columns straight up and down,
+  // or the swipe mapping the player asked for is a lie.
+  const east = FJ.proj(1, 0, 0), south = FJ.proj(0, 1, 0);
+  check(east.y === 0 && east.x > 0, "moving east is purely rightward on screen");
+  check(south.x === 0 && south.y > 0, "moving south is purely downward on screen");
+  check(Math.abs(south.y - east.x * FJ.ISO) < 1e-9,
+    `only the vertical is foreshortened (by ${FJ.ISO})`);
 }
 
 // --- 2. swipe snapping is exactly four ways -----------------------------
@@ -95,33 +98,26 @@ function step(seconds) {
   check(exact, "directions are exactly unit cardinals, no floating-point drift");
   check(all.size === 4, `every swipe angle lands on one of 4 directions (got ${all.size})`);
 
-  // Under the tilt the four world axes run diagonally on screen, so a swipe
-  // is inverse-projected first and only then snapped.
-  const swipe = (sx, sy) => { const w = FJ.unproj(sx, sy); return FJ.snapDir(w.x, w.y); };
-  const C = FJ.CFG.cell, H = C * FJ.ISO;
+  // Hops snap the raw screen delta: up is forward, right is right.
+  const swipe = (sx, sy) => FJ.snapDir(sx, sy);
 
-  const downRight = swipe(C, H);
-  check(downRight.x === 1 && downRight.y === 0, "a down-right swipe goes east");
-  const upRight = swipe(C, -H);
-  check(upRight.x === 0 && upRight.y === -1, "an up-right swipe goes north");
-  const upLeft = swipe(-C, -H);
-  check(upLeft.x === -1 && upLeft.y === 0, "an up-left swipe goes west");
-  const downLeft = swipe(-C, H);
-  check(downLeft.x === 0 && downLeft.y === 1, "a down-left swipe goes south");
+  const up = swipe(0, -120);
+  check(up.x === 0 && up.y === -1, "swiping up moves forward, away from the camera");
+  const down = swipe(0, 120);
+  check(down.x === 0 && down.y === 1, "swiping down moves back, toward the camera");
+  const right = swipe(120, 0);
+  check(right.x === 1 && right.y === 0, "swiping right moves right");
+  const left = swipe(-120, 0);
+  check(left.x === -1 && left.y === 0, "swiping left moves left");
 
-  // Straight up the screen sits exactly on the boundary between two world
-  // axes. Two things must hold there: the same flick always gives the same
-  // hop, and leaning even slightly to one side picks that side. (A real
-  // finger is never exactly vertical, so in practice you get whichever way
-  // you leaned — which is the point.)
-  const a = swipe(0, -100), b = swipe(0, -250);
-  check(a.x === b.x && a.y === b.y,
-    "a dead-vertical swipe is deterministic, not a coin flip");
-  const leanRight = swipe(2, -100), leanLeft = swipe(-2, -100);
-  check(leanRight.x === 0 && leanRight.y === -1,
-    "leaning a touch right of vertical goes north");
-  check(leanLeft.x === -1 && leanLeft.y === 0,
-    "leaning a touch left of vertical goes west");
+  // A sloppy swipe must resolve to the axis it is nearest ON SCREEN — the
+  // boundary sits at a true 45 degrees rather than being pulled toward the
+  // squashed axis.
+  check(swipe(100, -40).x === 1, "a shallow up-right swipe still reads as right");
+  check(swipe(40, -100).y === -1, "a steep up-right swipe still reads as forward");
+  const near45a = swipe(100, -99), near45b = swipe(99, -100);
+  check(near45a.x === 1 && near45a.y === 0 && near45b.x === 0 && near45b.y === -1,
+    "the boundary between right and forward sits at 45 degrees on screen");
 }
 
 // --- 3. a hop covers whole cells and stays grid aligned -----------------
