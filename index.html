@@ -1,0 +1,1358 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Frog Joust — Movement Test</title>
+</head>
+<body>
+<!-- ===== ARTIFACT BODY START ===== -->
+<style>
+  :root {
+    --pond:      #0b1618;
+    --pond-deep: #060e10;
+    --rim:       #16292b;
+    --lily-a:    #3f7a4f;
+    --lily-b:    #33684a;
+    --parchment: #e9efe4;
+    --muted:     #7d9287;
+    --gold:      #e4b429;
+    --cobalt:    #2f5fd0;
+    --crimson:   #b0353a;
+    --tongue:    #e8607a;
+
+    --font-display: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", Georgia, serif;
+    --font-ui: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: var(--pond-deep);
+    overscroll-behavior: none;
+  }
+
+  #fj-root {
+    position: fixed;
+    inset: 0;
+    overflow: hidden;
+    background: var(--pond-deep);
+    color: var(--parchment);
+    font-family: var(--font-ui);
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    touch-action: none;
+  }
+
+  #fj-canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+    touch-action: none;
+  }
+
+  /* ---- HUD ---------------------------------------------------------- */
+
+  .hud {
+    position: absolute;
+    pointer-events: none;
+    padding: calc(env(safe-area-inset-top, 0px) + 14px) 16px 0;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    top: 0; left: 0; right: 0;
+  }
+
+  .banner { display: flex; flex-direction: column; gap: 3px; }
+
+  .banner h1 {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 19px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--parchment);
+    text-shadow: 0 1px 0 rgba(0, 0, 0, 0.7);
+  }
+
+  .banner .sub {
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .readout {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    margin-top: 5px;
+  }
+
+  .lamp {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--muted);
+    box-shadow: 0 0 7px currentColor;
+    transition: background-color 120ms linear;
+  }
+  .lamp.idle    { background: #4e6b5c; }
+  .lamp.hop     { background: var(--gold); }
+  .lamp.extend  { background: var(--tongue); }
+  .lamp.retract { background: #8c4a63; }
+
+  .tally {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 8px;
+    pointer-events: auto;
+  }
+
+  .score b {
+    font-family: var(--font-display);
+    font-size: 30px;
+    font-weight: 600;
+    line-height: 1;
+    color: var(--gold);
+    font-variant-numeric: tabular-nums;
+    text-shadow: 0 1px 0 rgba(0, 0, 0, 0.7);
+  }
+  .score span {
+    font-family: var(--font-ui);
+    font-size: 10px;
+    letter-spacing: 0.16em;
+    color: var(--muted);
+    display: block;
+    text-align: right;
+    margin-top: 3px;
+  }
+
+  .btn-row { display: flex; gap: 6px; }
+
+  button {
+    font-family: var(--font-ui);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--parchment);
+    background: rgba(12, 26, 28, 0.78);
+    border: 1px solid rgba(233, 239, 228, 0.18);
+    border-radius: 2px;
+    padding: 7px 10px;
+    cursor: pointer;
+    -webkit-appearance: none;
+    appearance: none;
+  }
+  button:hover { border-color: rgba(233, 239, 228, 0.4); }
+  button:active { background: rgba(228, 180, 41, 0.2); }
+  button:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
+
+  /* ---- hint --------------------------------------------------------- */
+
+  .hint {
+    position: absolute;
+    left: 50%;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 18px);
+    transform: translateX(-50%);
+    pointer-events: none;
+    text-align: center;
+    font-size: 11px;
+    line-height: 1.7;
+    letter-spacing: 0.06em;
+    color: var(--muted);
+    /* an absolutely positioned box at left:50% can only grow into the
+       remaining half of the screen, so set the width explicitly */
+    width: min(92vw, 440px);
+    text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+    transition: opacity 500ms ease;
+  }
+  .hint b { color: var(--parchment); font-weight: 600; }
+  .hint.away { opacity: 0.28; }
+
+  /* ---- tuning drawer ------------------------------------------------ */
+
+  .drawer {
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    background: rgba(8, 20, 22, 0.96);
+    border-top: 1px solid rgba(233, 239, 228, 0.16);
+    padding: 14px 16px calc(env(safe-area-inset-bottom, 0px) + 16px);
+    transform: translateY(101%);
+    transition: transform 260ms cubic-bezier(0.22, 0.61, 0.36, 1);
+    max-height: 62vh;
+    overflow-y: auto;
+  }
+  .drawer.open { transform: translateY(0); }
+
+  .drawer-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 12px;
+  }
+  .drawer-head h2 {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+  }
+
+  .tuners {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+    gap: 12px 22px;
+  }
+
+  .tuner { display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; align-items: center; }
+  .tuner label {
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .tuner output {
+    font-size: 11px;
+    color: var(--gold);
+    font-variant-numeric: tabular-nums;
+  }
+  .tuner input {
+    grid-column: 1 / -1;
+    width: 100%;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 18px;
+    background: transparent;
+    margin: 0;
+  }
+  .tuner input::-webkit-slider-runnable-track {
+    height: 2px;
+    background: rgba(233, 239, 228, 0.22);
+  }
+  .tuner input::-moz-range-track {
+    height: 2px;
+    background: rgba(233, 239, 228, 0.22);
+  }
+  .tuner input::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 15px; height: 15px;
+    margin-top: -6.5px;
+    border-radius: 50%;
+    background: var(--gold);
+    border: none;
+  }
+  .tuner input::-moz-range-thumb {
+    width: 15px; height: 15px;
+    border-radius: 50%;
+    background: var(--gold);
+    border: none;
+  }
+  .tuner input:focus-visible { outline: 2px solid var(--gold); outline-offset: 4px; }
+
+  .drawer-foot {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    margin-top: 14px;
+  }
+  .drawer-foot p {
+    margin: 0;
+    font-size: 10px;
+    line-height: 1.6;
+    color: var(--muted);
+    max-width: 46ch;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .drawer, .hint { transition: none; }
+  }
+</style>
+
+<div id="fj-root">
+  <canvas id="fj-canvas"></canvas>
+
+  <div class="hud">
+    <div class="banner">
+      <h1>Frog Joust</h1>
+      <div class="sub">Movement test&nbsp;· 0.1</div>
+      <div class="readout">
+        <i class="lamp idle" id="fj-lamp"></i><span id="fj-state">IDLE</span>
+      </div>
+    </div>
+
+    <div class="tally">
+      <div class="score"><b id="fj-ko">0</b><span>unhorsed</span></div>
+      <div class="btn-row">
+        <button id="fj-tune" type="button">Tune</button>
+        <button id="fj-reset" type="button">Reset</button>
+      </div>
+    </div>
+  </div>
+
+  <p class="hint" id="fj-hint">
+    <b>Swipe</b> anywhere to hop<br>
+    <b>Press and hold</b> to shoot the tongue<br>
+    drag to steer it &nbsp;·&nbsp; <b>release</b> to reel in
+  </p>
+
+  <div class="drawer" id="fj-drawer" aria-label="Feel tuning">
+    <div class="drawer-head">
+      <h2>Feel tuning</h2>
+      <button id="fj-defaults" type="button">Defaults</button>
+    </div>
+    <div class="tuners" id="fj-tuners"></div>
+    <div class="drawer-foot">
+      <p>These are the numbers to carry into Unity. They live on the ground plane only — height is
+      purely cosmetic here, exactly as it will be under an isometric camera.</p>
+      <button id="fj-close" type="button">Close</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  // Make sure phones get a real viewport lock even when this page is embedded.
+  try {
+    var vp = document.querySelector('meta[name="viewport"]');
+    if (!vp) {
+      vp = document.createElement("meta");
+      vp.name = "viewport";
+      document.head.appendChild(vp);
+    }
+    vp.content = "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover";
+  } catch (e) { /* non-browser host */ }
+
+  // =====================================================================
+  // CONFIG — every gameplay number lives here, in world units (tiles) and
+  // seconds, so it ports to Unity 1:1. Nothing below reads a pixel value
+  // for gameplay; pixels only ever appear in the isometric projection.
+  // =====================================================================
+
+  var DEFAULTS = {
+    // --- world / projection
+    tileW: 64,            // px width of one tile diamond (2:1 isometric)
+    tileH: 32,            // px height of one tile diamond
+    arena: 11,            // arena is arena x arena tiles
+
+    // --- hopping
+    dirCount: 8,          // directions a swipe snaps to (4 = pure Frogger)
+    hopDist: 1.0,         // tiles travelled per hop
+    hopTime: 0.19,        // seconds per hop
+    hopHeight: 30,        // px apex — cosmetic only, never gameplay
+
+    // --- tongue
+    tongueMax: 3.4,       // tiles, max reach
+    extendSpeed: 8.5,     // tiles/sec while the button is held
+    retractSpeed: 11.0,   // tiles/sec the leash shortens once released
+    sweepSpeed: 5.0,      // tiles/sec the tip still travels while reeling in
+    steerRate: 6.0,       // radians/sec the tip can swing its heading
+    curveBow: 0.45,       // how hard the tongue bows away from a straight line
+    minExtend: 0.14,      // sec — a quick tap still gets a full jab
+    hitRadius: 0.5,       // tiles — tongue vs rider
+
+    // --- input
+    swipeThreshold: 22,   // px of travel that turns a press into a swipe
+    swipeGrace: 140,      // ms window in which a press can still become a swipe
+    steerDeadzone: 14     // px of drag before the tongue starts steering
+  };
+
+  var TUNABLE = [
+    { key: "hopDist",        label: "Hop distance",  min: 0.4,  max: 2.5,   step: 0.05, unit: " tiles" },
+    { key: "hopTime",        label: "Hop time",      min: 0.08, max: 0.5,   step: 0.01, unit: " s" },
+    { key: "tongueMax",      label: "Tongue reach",  min: 1.5,  max: 6,     step: 0.1,  unit: " tiles" },
+    { key: "extendSpeed",    label: "Extend speed",  min: 3,    max: 22,    step: 0.5,  unit: " t/s" },
+    { key: "retractSpeed",   label: "Retract speed", min: 3,    max: 28,    step: 0.5,  unit: " t/s" },
+    { key: "steerRate",      label: "Steer rate",    min: 0,    max: 16,    step: 0.25, unit: " rad/s" },
+    { key: "curveBow",       label: "Curve bow",     min: 0.05, max: 0.9,   step: 0.05, unit: "" },
+    { key: "dirCount",       label: "Hop directions",min: 4,    max: 8,     step: 4,    unit: "-way" },
+    { key: "swipeThreshold", label: "Swipe travel",  min: 8,    max: 60,    step: 1,    unit: " px" }
+  ];
+
+  var CFG = {};
+  for (var k in DEFAULTS) CFG[k] = DEFAULTS[k];
+
+  var TONGUE_NODES = 26;   // rope resolution — visual fidelity, not feel
+  var TONGUE_Z = 15;       // px above the ground plane the tongue is drawn at
+  var FIXED_DT = 1 / 120;  // physics step
+
+  // =====================================================================
+  // MATH / PROJECTION
+  // =====================================================================
+
+  function clamp(v, lo, hi) { return v < lo ? lo : v > hi ? hi : v; }
+  function lerp(a, b, t) { return a + (b - a) * t; }
+
+  // World (ground-plane x, y) -> screen. z is cosmetic height in px.
+  function proj(wx, wy, z) {
+    return {
+      x: (wx - wy) * CFG.tileW * 0.5,
+      y: (wx + wy) * CFG.tileH * 0.5 - (z || 0)
+    };
+  }
+
+  // Screen delta -> world delta. Used for swipes and for arrow keys, so a
+  // flick "up" the screen always means "away from the camera".
+  function unproj(sx, sy) {
+    return {
+      x: sx / CFG.tileW + sy / CFG.tileH,
+      y: sy / CFG.tileH - sx / CFG.tileW
+    };
+  }
+
+  // Direction a world vector points, in normalized screen space.
+  function projDir(wx, wy) {
+    var sx = (wx - wy) * CFG.tileW * 0.5;
+    var sy = (wx + wy) * CFG.tileH * 0.5;
+    var d = Math.hypot(sx, sy) || 1;
+    return { x: sx / d, y: sy / d };
+  }
+
+  // Snap a world vector to the nearest of CFG.dirCount compass directions.
+  function snapDir(wx, wy) {
+    var step = (Math.PI * 2) / CFG.dirCount;
+    var a = Math.round(Math.atan2(wy, wx) / step) * step;
+    return { x: Math.cos(a), y: Math.sin(a) };
+  }
+
+  // =====================================================================
+  // STATE
+  // =====================================================================
+
+  var player, enemies, debris, cam, tongue, ko;
+
+  function makeMount(x, y, armor, trim) {
+    return {
+      x: x, y: y, z: 0,
+      face: { x: 0.7071, y: 0.7071 },
+      armor: armor, trim: trim,
+      rider: true,
+      bob: Math.random() * Math.PI * 2,
+      squash: 1,
+      state: "idle",          // idle | hop
+      hop: null
+    };
+  }
+
+  function reset() {
+    player = makeMount(0, 0, "#2f5fd0", "#e4b429");
+    player.bob = 0;
+    enemies = [
+      makeMount(-3, -2, "#b0353a", "#e5cfa0"),
+      makeMount(3, -3, "#8d4bb0", "#e5cfa0"),
+      makeMount(2.5, 3, "#c2761f", "#e5cfa0"),
+      makeMount(-3, 3, "#3f8f86", "#e5cfa0")
+    ];
+    for (var i = 0; i < enemies.length; i++) {
+      enemies[i].face = { x: -enemies[i].x, y: -enemies[i].y };
+      var d = Math.hypot(enemies[i].face.x, enemies[i].face.y) || 1;
+      enemies[i].face.x /= d; enemies[i].face.y /= d;
+    }
+    debris = [];
+    ko = 0;
+    cam = { x: 0, y: 0 };
+
+    tongue = {
+      state: "idle",          // idle | extend | retract
+      len: 0,                 // tiles of leash paid out — the hard reach limit
+      t: 0,                   // seconds spent extending
+      tip: { x: 0, y: 0 },
+      prev: { x: 0, y: 0 },   // last frame's tip, for knockback velocity
+      dir: { x: 1, y: 0 },    // the tip's heading; this is what steering turns
+      nodes: []               // sampled curve, shared by drawing and hit tests
+    };
+    for (var n = 0; n < TONGUE_NODES; n++) {
+      tongue.nodes.push({ x: 0, y: 0 });
+    }
+  }
+
+  // Where the tongue leaves the toad's mouth.
+  function mouth(m) {
+    return { x: m.x + m.face.x * 0.42, y: m.y + m.face.y * 0.42 };
+  }
+
+  // =====================================================================
+  // INPUT — one finger, two verbs.
+  //
+  //   press ................ tongue starts extending immediately
+  //   press + travel <grace. reinterpreted as a swipe; the tongue is
+  //                          cancelled before it is meaningfully out
+  //   press + travel >grace. steers the tongue that is already in flight
+  //   release .............. tongue reels in
+  //
+  // Holding through a hop is buffered: the tongue fires the instant the
+  // frog lands, so the control never feels like it swallowed an input.
+  // =====================================================================
+
+  var input = {
+    holding: false,       // finger/space is down and this press is a "hold"
+    consumed: false,      // this hold has already spawned a tongue
+    steer: { x: 0, y: 0 },
+    hopQueue: null,       // one buffered hop direction
+    pointerId: null,
+    origin: { x: 0, y: 0 },
+    downAt: 0,
+    swiped: false,
+    keys: {}
+  };
+
+  function now() { return (typeof performance !== "undefined" ? performance.now() : 0); }
+
+  function requestHop(dirWorld) {
+    input.hopQueue = snapDir(dirWorld.x, dirWorld.y);
+  }
+
+  function pressDown(x, y) {
+    // NB: the caller owns input.pointerId — clearing it here would orphan
+    // every subsequent move and release from this same finger.
+    input.origin.x = x; input.origin.y = y;
+    input.downAt = now();
+    input.swiped = false;
+    input.holding = true;
+    input.consumed = false;
+    input.steer.x = 0; input.steer.y = 0;
+    fadeHint();
+  }
+
+  function pressMove(x, y) {
+    if (!input.holding && !input.swiped) return;
+    var dx = x - input.origin.x, dy = y - input.origin.y;
+    var dist = Math.hypot(dx, dy);
+
+    if (!input.swiped && input.holding && dist > CFG.swipeThreshold &&
+        now() - input.downAt < CFG.swipeGrace) {
+      // Reinterpret: this was a swipe all along. Kill the nascent tongue.
+      input.swiped = true;
+      input.holding = false;
+      cancelTongue();
+      requestHop(unproj(dx, dy));
+      return;
+    }
+    if (input.holding) {
+      if (dist > CFG.steerDeadzone) {
+        var w = unproj(dx, dy);
+        var d = Math.hypot(w.x, w.y) || 1;
+        input.steer.x = w.x / d;
+        input.steer.y = w.y / d;
+      } else {
+        input.steer.x = 0; input.steer.y = 0;
+      }
+    }
+  }
+
+  function pressUp() {
+    input.holding = false;
+    input.steer.x = 0; input.steer.y = 0;
+  }
+
+  // --- keyboard mirror, for desktop -----------------------------------
+  var KEY_VEC = {
+    ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0],
+    w: [0, -1], s: [0, 1], a: [-1, 0], d: [1, 0]
+  };
+
+  function keyVector() {
+    var sx = 0, sy = 0;
+    for (var key in input.keys) {
+      if (!input.keys[key]) continue;
+      var v = KEY_VEC[key];
+      if (v) { sx += v[0]; sy += v[1]; }
+    }
+    if (!sx && !sy) return null;
+    return unproj(sx, sy);
+  }
+
+  // =====================================================================
+  // TONGUE
+  // =====================================================================
+
+  function startTongue() {
+    var m = mouth(player);
+    tongue.state = "extend";
+    tongue.len = 0;
+    tongue.t = 0;
+    tongue.tip.x = m.x; tongue.tip.y = m.y;
+    tongue.prev.x = m.x; tongue.prev.y = m.y;
+    tongue.dir.x = player.face.x; tongue.dir.y = player.face.y;
+    sampleCurve();
+  }
+
+  function cancelTongue() {
+    tongue.state = "idle";
+    tongue.len = 0;
+    tongue.t = 0;
+  }
+
+  function updateTongue(dt) {
+    // Buffered start: fires the moment the frog is standing still again.
+    if (tongue.state === "idle" && input.holding && !input.consumed &&
+        player.state === "idle") {
+      input.consumed = true;
+      startTongue();
+    }
+
+    if (tongue.state === "idle") return;
+
+    if (tongue.state === "extend") {
+      tongue.t += dt;
+      // Ease the first fraction of a second so a swipe-cancel never leaves
+      // a visible stub behind.
+      var ramp = clamp(tongue.t / 0.09, 0, 1);
+      tongue.len = Math.min(CFG.tongueMax, tongue.len + CFG.extendSpeed * ramp * dt);
+      if (!input.holding && tongue.t >= CFG.minExtend) tongue.state = "retract";
+    } else {
+      tongue.len -= CFG.retractSpeed * dt;
+      if (tongue.len <= 0.015) { cancelTongue(); return; }
+    }
+
+    moveTip(dt);
+    sampleCurve();
+    checkTongueHits(dt);
+  }
+
+  // The tip is the thing that flies; the tongue is whatever shape connects it
+  // back to the mouth. Steering turns the tip's HEADING at a fixed rate rather
+  // than shoving it sideways, which is what makes the arc feel driven instead
+  // of floaty — and it is a rotation, so it never blows up.
+  function moveTip(dt) {
+    var s = input.steer;
+    var mag = Math.hypot(s.x, s.y);
+    if (mag > 1e-4) {
+      var target = Math.atan2(s.y, s.x);
+      var cur = Math.atan2(tongue.dir.y, tongue.dir.x);
+      var delta = target - cur;
+      while (delta > Math.PI) delta -= Math.PI * 2;
+      while (delta < -Math.PI) delta += Math.PI * 2;
+      var turn = clamp(delta, -CFG.steerRate * dt, CFG.steerRate * dt);
+      tongue.dir.x = Math.cos(cur + turn);
+      tongue.dir.y = Math.sin(cur + turn);
+    }
+
+    tongue.prev.x = tongue.tip.x;
+    tongue.prev.y = tongue.tip.y;
+
+    // Travelling while reeling in is what lets you sweep the tongue across a
+    // rival on the way home, not just on the way out.
+    var speed = (tongue.state === "extend") ? CFG.extendSpeed : CFG.sweepSpeed;
+    tongue.tip.x += tongue.dir.x * speed * dt;
+    tongue.tip.y += tongue.dir.y * speed * dt;
+
+    // The leash: the tip can never be further from the mouth than the length
+    // paid out, so shrinking the length physically drags the tip home.
+    var m = mouth(player);
+    var vx = tongue.tip.x - m.x, vy = tongue.tip.y - m.y;
+    var d = Math.hypot(vx, vy);
+    if (d > tongue.len) {
+      var f = tongue.len / (d || 1);
+      tongue.tip.x = m.x + vx * f;
+      tongue.tip.y = m.y + vy * f;
+    }
+  }
+
+  // Cubic curve from the mouth to the tip: it leaves along the toad's facing
+  // and arrives along the tip's heading, so the visible arc always reads as
+  // "this is where the tongue is being pushed".
+  function sampleCurve() {
+    var m = mouth(player);
+    var tip = tongue.tip;
+    var cx = tip.x - m.x, cy = tip.y - m.y;
+    var chord = Math.hypot(cx, cy);
+    var bow = CFG.curveBow * (chord * 0.65 + tongue.len * 0.35);
+
+    // Cap the outgoing tangent so the whole curve stays inside the leash —
+    // otherwise a bowed tongue could quietly out-reach its own maximum.
+    var dot = cx * tongue.dir.x + cy * tongue.dir.y;
+    var disc = dot * dot - chord * chord + tongue.len * tongue.len;
+    var limit = dot + Math.sqrt(Math.max(0, disc));
+    var bowIn = Math.min(bow, tongue.len);
+    var bowOut = clamp(bow, 0, Math.max(0, limit));
+
+    var p1x = m.x + player.face.x * bowIn, p1y = m.y + player.face.y * bowIn;
+    var p2x = tip.x - tongue.dir.x * bowOut, p2y = tip.y - tongue.dir.y * bowOut;
+
+    var nodes = tongue.nodes, N = nodes.length;
+    for (var i = 0; i < N; i++) {
+      var t = i / (N - 1);
+      var u = 1 - t;
+      var a = u * u * u, b = 3 * u * u * t, c = 3 * u * t * t, e = t * t * t;
+      nodes[i].x = a * m.x + b * p1x + c * p2x + e * tip.x;
+      nodes[i].y = a * m.y + b * p1y + c * p2y + e * tip.y;
+    }
+  }
+
+  function tipVelocity(dt) {
+    return {
+      x: (tongue.tip.x - tongue.prev.x) / dt,
+      y: (tongue.tip.y - tongue.prev.y) / dt
+    };
+  }
+
+  function checkTongueHits(dt) {
+    var nodes = tongue.nodes;
+    // The whole outer length of the tongue is live, not just the tip, so a
+    // sweep can catch a rival on the way past.
+    for (var e = 0; e < enemies.length; e++) {
+      var en = enemies[e];
+      if (!en.rider) continue;
+      for (var i = 5; i < nodes.length; i++) {
+        var dx = nodes[i].x - en.x, dy = nodes[i].y - en.y;
+        if (dx * dx + dy * dy < CFG.hitRadius * CFG.hitRadius) {
+          unhorse(en, tipVelocity(dt));
+          break;
+        }
+      }
+    }
+  }
+
+  function unhorse(mount, vel) {
+    mount.rider = false;
+    ko++;
+    var speed = Math.hypot(vel.x, vel.y) || 1;
+    var dirx = vel.x / speed, diry = vel.y / speed;
+    var push = clamp(speed * 0.35, 2.2, 6.5);
+    debris.push({
+      x: mount.x, y: mount.y, z: 26,
+      vx: dirx * push, vy: diry * push, vz: 250,
+      rot: 0, spin: (Math.random() < 0.5 ? -1 : 1) * (7 + Math.random() * 5),
+      armor: mount.armor, trim: mount.trim,
+      life: 0, grounded: false
+    });
+    setScore();
+  }
+
+  // =====================================================================
+  // MOUNTS
+  // =====================================================================
+
+  function updatePlayer(dt) {
+    var bound = Math.floor(CFG.arena / 2);
+
+    if (player.state === "idle") {
+      // Movement is locked out for the whole tongue cycle — extend AND retract.
+      if (tongue.state === "idle" && input.hopQueue) {
+        var dir = input.hopQueue;
+        input.hopQueue = null;
+        player.face = { x: dir.x, y: dir.y };
+        player.state = "hop";
+        player.hop = {
+          fx: player.x, fy: player.y,
+          tx: clamp(player.x + dir.x * CFG.hopDist, -bound, bound),
+          ty: clamp(player.y + dir.y * CFG.hopDist, -bound, bound),
+          t: 0
+        };
+      } else if (tongue.state !== "idle") {
+        input.hopQueue = null;
+      }
+    }
+
+    if (player.state === "hop") {
+      var h = player.hop;
+      h.t += dt;
+      var u = clamp(h.t / CFG.hopTime, 0, 1);
+      var e = u * u * (3 - 2 * u);     // smoothstep along the ground
+      player.x = lerp(h.fx, h.tx, e);
+      player.y = lerp(h.fy, h.ty, e);
+      player.z = Math.sin(u * Math.PI) * CFG.hopHeight;
+      player.squash = 1 + Math.sin(u * Math.PI) * 0.16;
+      if (u >= 1) {
+        player.state = "idle";
+        player.z = 0;
+        player.squash = 1;
+        player.hop = null;
+      }
+    } else {
+      player.bob += dt * 2.2;
+      player.z = Math.sin(player.bob) * 1.2;
+      player.squash = 1;
+    }
+  }
+
+  function updateEnemies(dt) {
+    for (var i = 0; i < enemies.length; i++) {
+      var en = enemies[i];
+      en.bob += dt * (1.6 + i * 0.13);
+      en.z = Math.sin(en.bob) * 1.6;
+    }
+  }
+
+  function updateDebris(dt) {
+    for (var i = debris.length - 1; i >= 0; i--) {
+      var d = debris[i];
+      d.life += dt;
+      if (!d.grounded) {
+        d.x += d.vx * dt;
+        d.y += d.vy * dt;
+        d.vz -= 900 * dt;
+        d.z += d.vz * dt;
+        d.rot += d.spin * dt;
+        if (d.z <= 0) {
+          d.z = 0;
+          d.grounded = true;
+          d.spin *= 0.2;
+        }
+      } else {
+        d.vx *= 0.88; d.vy *= 0.88;
+        d.x += d.vx * dt; d.y += d.vy * dt;
+        d.rot += d.spin * dt;
+        d.spin *= 0.9;
+      }
+      if (d.life > 3.4) debris.splice(i, 1);
+    }
+  }
+
+  function updateCamera(dt) {
+    var k = 1 - Math.pow(0.0015, dt);
+    cam.x = lerp(cam.x, player.x, k);
+    cam.y = lerp(cam.y, player.y, k);
+  }
+
+  function update(dt) {
+    // Keyboard feeds the same intents the touch layer produces.
+    if (!input.holding || input.keys[" "]) {
+      var kv = keyVector();
+      if (input.keys[" "]) {
+        if (kv) {
+          var d = Math.hypot(kv.x, kv.y) || 1;
+          input.steer.x = kv.x / d; input.steer.y = kv.y / d;
+        } else { input.steer.x = 0; input.steer.y = 0; }
+      }
+    }
+    updatePlayer(dt);
+    updateTongue(dt);
+    updateEnemies(dt);
+    updateDebris(dt);
+    updateCamera(dt);
+  }
+
+  // =====================================================================
+  // RENDER
+  // =====================================================================
+
+  var canvas, ctx, viewW = 0, viewH = 0, dpr = 1, scale = 1;
+
+  function resize() {
+    dpr = Math.min(window.devicePixelRatio || 1, 2.5);
+    viewW = canvas.clientWidth || window.innerWidth;
+    viewH = canvas.clientHeight || window.innerHeight;
+    canvas.width = Math.round(viewW * dpr);
+    canvas.height = Math.round(viewH * dpr);
+    // Fit roughly the whole arena on screen, whatever the phone.
+    scale = clamp(Math.min(viewW, viewH) / 430, 0.62, 1.9);
+  }
+
+  function render() {
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.fillStyle = "#060e10";
+    ctx.fillRect(0, 0, viewW, viewH);
+
+    var c = proj(cam.x, cam.y, 0);
+    ctx.save();
+    ctx.translate(viewW * 0.5, viewH * 0.52);
+    ctx.scale(scale, scale);
+    ctx.translate(-c.x, -c.y);
+
+    drawArena();
+
+    var order = [];
+    for (var i = 0; i < enemies.length; i++) order.push({ d: enemies[i].x + enemies[i].y, m: enemies[i], kind: "mount" });
+    order.push({ d: player.x + player.y, m: player, kind: "mount" });
+    for (var j = 0; j < debris.length; j++) order.push({ d: debris[j].x + debris[j].y, m: debris[j], kind: "debris" });
+    order.sort(function (a, b) { return a.d - b.d; });
+
+    for (var n = 0; n < order.length; n++) {
+      if (order[n].kind === "mount") drawMount(order[n].m);
+      else drawFlyingKnight(order[n].m);
+    }
+
+    drawTongue();
+    ctx.restore();
+
+    drawVignette();
+  }
+
+  function drawArena() {
+    var R = Math.floor(CFG.arena / 2);
+    var hw = CFG.tileW * 0.5, hh = CFG.tileH * 0.5;
+
+    // Water shelf under the arena, so the island reads as raised.
+    ctx.beginPath();
+    var rim = R + 1.15;
+    var corners = [proj(-rim, -rim, 0), proj(rim, -rim, 0), proj(rim, rim, 0), proj(-rim, rim, 0)];
+    ctx.moveTo(corners[0].x, corners[0].y);
+    for (var c = 1; c < 4; c++) ctx.lineTo(corners[c].x, corners[c].y);
+    ctx.closePath();
+    ctx.fillStyle = "#16292b";
+    ctx.fill();
+
+    for (var gx = -R; gx <= R; gx++) {
+      for (var gy = -R; gy <= R; gy++) {
+        var p = proj(gx, gy, 0);
+        ctx.beginPath();
+        ctx.moveTo(p.x, p.y - hh);
+        ctx.lineTo(p.x + hw, p.y);
+        ctx.lineTo(p.x, p.y + hh);
+        ctx.lineTo(p.x - hw, p.y);
+        ctx.closePath();
+        ctx.fillStyle = ((gx + gy) & 1) ? "#33684a" : "#3f7a4f";
+        ctx.fill();
+        ctx.strokeStyle = "rgba(6,20,18,0.20)";
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    }
+
+    // Arena edge, drawn as one outline so it reads as a lip.
+    ctx.beginPath();
+    var e0 = proj(-R - 0.5, -R - 0.5, 0), e1 = proj(R + 0.5, -R - 0.5, 0),
+        e2 = proj(R + 0.5, R + 0.5, 0), e3 = proj(-R - 0.5, R + 0.5, 0);
+    ctx.moveTo(e0.x, e0.y); ctx.lineTo(e1.x, e1.y);
+    ctx.lineTo(e2.x, e2.y); ctx.lineTo(e3.x, e3.y);
+    ctx.closePath();
+    ctx.strokeStyle = "rgba(233,239,228,0.16)";
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+
+  function drawShadow(wx, wy, z, r) {
+    var p = proj(wx, wy, 0);
+    var t = clamp(1 - z / 90, 0.35, 1);
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.scale(1, 0.5);
+    ctx.beginPath();
+    ctx.arc(0, 0, r * t, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(4,12,12," + (0.42 * t) + ")";
+    ctx.fill();
+    ctx.restore();
+  }
+
+  function drawMount(m) {
+    drawShadow(m.x, m.y, m.z, 21);
+    var p = proj(m.x, m.y, m.z);
+    var f = projDir(m.face.x, m.face.y);
+    var sq = m.squash || 1;
+
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.scale(1 / Math.sqrt(sq), sq);
+
+    // haunches, wide enough to read past the body
+    ctx.fillStyle = "#2a5636";
+    ellipse(-20, -8, 9, 7);
+    ellipse(20, -8, 9, 7);
+
+    // body
+    var g = ctx.createLinearGradient(0, -28, 0, -2);
+    g.addColorStop(0, "#63ab56");
+    g.addColorStop(1, "#2f6440");
+    ctx.fillStyle = g;
+    ellipse(0, -14, 21, 15);
+
+    // belly sheen
+    ctx.fillStyle = "rgba(190,232,170,0.18)";
+    ellipse(-3, -19, 12, 7);
+
+    // front feet, splayed toward the camera so the toad has a front
+    ctx.fillStyle = "#357a44";
+    ellipse(-13, -1, 7, 4);
+    ellipse(13, -1, 7, 4);
+
+    // head
+    ctx.fillStyle = "#4f9152";
+    ellipse(f.x * 11, -25 + f.y * 5, 15, 11);
+
+    // Eyes straddle the facing axis. The perpendicular is taken in WORLD space
+    // and then projected, so the pair foreshortens correctly at every angle
+    // instead of shearing when the toad turns.
+    var perp = projDir(-m.face.y, m.face.x);
+    var eyes = [];
+    for (var s = -1; s <= 1; s += 2) {
+      eyes.push({
+        x: f.x * 11 + perp.x * 7 * s,
+        y: -32 + f.y * 4 + perp.y * 7 * s
+      });
+    }
+    // Higher on screen is further away: draw that one first and a shade
+    // smaller, or a side-on toad ends up with two identical floating eyes.
+    eyes.sort(function (a, b) { return a.y - b.y; });
+    for (var e = 0; e < eyes.length; e++) {
+      var r = e === 0 ? 4.4 : 5.4;
+      ctx.fillStyle = "#f3f6e8";
+      circle(eyes[e].x, eyes[e].y, r);
+      ctx.fillStyle = "#11201c";
+      circle(eyes[e].x + f.x * 1.8, eyes[e].y + f.y * 1.2, r * 0.48);
+    }
+
+    // mouth line, where the tongue leaves
+    ctx.strokeStyle = "rgba(15,32,26,0.55)";
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.arc(f.x * 12, -23 + f.y * 5, 8, 0.15 * Math.PI, 0.85 * Math.PI);
+    ctx.stroke();
+
+    if (m.rider) drawKnight(0, -34, f, m.armor, m.trim);
+    ctx.restore();
+  }
+
+  // Knight drawn in local space; f is the facing in screen units.
+  function drawKnight(ox, oy, f, armor, trim) {
+    ctx.save();
+    ctx.translate(ox - f.x * 2, oy);
+
+    // plume streams away from the facing
+    ctx.strokeStyle = trim;
+    ctx.lineWidth = 3;
+    ctx.lineCap = "round";
+    for (var i = -1; i <= 1; i++) {
+      ctx.beginPath();
+      ctx.moveTo(-f.x * 4, -20);
+      ctx.quadraticCurveTo(-f.x * 13, -27 + i * 2, -f.x * 22, -19 + i * 5);
+      ctx.stroke();
+    }
+
+    // torso — narrow shoulders, flared skirt, so it reads as a seated figure
+    ctx.fillStyle = armor;
+    ctx.beginPath();
+    ctx.moveTo(-9, 3);
+    ctx.quadraticCurveTo(-7, -12, 0, -13);
+    ctx.quadraticCurveTo(7, -12, 9, 3);
+    ctx.closePath();
+    ctx.fill();
+
+    // sash
+    ctx.fillStyle = trim;
+    ctx.beginPath();
+    ctx.moveTo(-8.4, -2); ctx.lineTo(8.4, -5);
+    ctx.lineTo(8.4, -2.4); ctx.lineTo(-8.4, 0.6);
+    ctx.closePath();
+    ctx.fill();
+
+    // pauldrons
+    ctx.fillStyle = shade(armor, 1.3);
+    circle(-8.5, -9, 4.6);
+    circle(8.5, -9, 4.6);
+
+    // gorget + helm
+    ctx.fillStyle = shade(armor, 0.7);
+    ellipse(0, -14, 5.5, 2.6);
+    ctx.fillStyle = shade(armor, 1.45);
+    ctx.beginPath();
+    ctx.arc(0, -19, 7, Math.PI, 0);
+    ctx.quadraticCurveTo(6, -13.5, 0, -12.5);
+    ctx.quadraticCurveTo(-6, -13.5, -7, -19);
+    ctx.closePath();
+    ctx.fill();
+
+    // visor slit, shifted with the facing so you can read where he is looking
+    ctx.fillStyle = "#0b1614";
+    ctx.fillRect(f.x * 2.2 - 5.5, -20, 11, 3.2);
+    ctx.restore();
+  }
+
+  function drawFlyingKnight(d) {
+    drawShadow(d.x, d.y, d.z, 10);
+    var p = proj(d.x, d.y, d.z);
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(d.rot);
+    ctx.globalAlpha = clamp(1 - (d.life - 2.4) / 1, 0, 1);
+    drawKnight(0, 0, { x: 1, y: 0 }, d.armor, d.trim);
+    ctx.restore();
+    ctx.globalAlpha = 1;
+  }
+
+  // The tongue: a tapered ribbon built from the rope's node positions.
+  function drawTongue() {
+    if (tongue.state === "idle" || tongue.len < 0.05) return;
+
+    var nodes = tongue.nodes, N = nodes.length;
+    var pts = new Array(N);
+    for (var i = 0; i < N; i++) pts[i] = proj(nodes[i].x, nodes[i].y, TONGUE_Z);
+
+    var left = [], right = [];
+    for (var j = 0; j < N; j++) {
+      var a = pts[Math.max(0, j - 1)], b = pts[Math.min(N - 1, j + 1)];
+      var tx = b.x - a.x, ty = b.y - a.y;
+      var d = Math.hypot(tx, ty) || 1;
+      var nx = -ty / d, ny = tx / d;
+      var w = lerp(6.5, 2.6, j / (N - 1)) * 0.5;
+      left.push({ x: pts[j].x + nx * w, y: pts[j].y + ny * w });
+      right.push({ x: pts[j].x - nx * w, y: pts[j].y - ny * w });
+    }
+
+    ctx.beginPath();
+    ctx.moveTo(left[0].x, left[0].y);
+    for (var l = 1; l < N; l++) ctx.lineTo(left[l].x, left[l].y);
+    for (var r = N - 1; r >= 0; r--) ctx.lineTo(right[r].x, right[r].y);
+    ctx.closePath();
+
+    var g = ctx.createLinearGradient(pts[0].x, pts[0].y, pts[N - 1].x, pts[N - 1].y);
+    g.addColorStop(0, "#b33a57");
+    g.addColorStop(1, "#e8607a");
+    ctx.fillStyle = g;
+    ctx.fill();
+    ctx.strokeStyle = "rgba(60,12,26,0.55)";
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+
+    // sticky tip
+    var tip = pts[N - 1];
+    ctx.fillStyle = "#f2879c";
+    circle(tip.x, tip.y, 5);
+    ctx.fillStyle = "rgba(255,255,255,0.45)";
+    circle(tip.x - 1.4, tip.y - 1.6, 1.7);
+
+    // its shadow on the ground, so reach reads clearly from above
+    var tn = nodes[N - 1];
+    drawShadow(tn.x, tn.y, TONGUE_Z, 4.5);
+  }
+
+  function drawVignette() {
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    var g = ctx.createRadialGradient(
+      viewW * 0.5, viewH * 0.5, Math.min(viewW, viewH) * 0.32,
+      viewW * 0.5, viewH * 0.5, Math.max(viewW, viewH) * 0.78
+    );
+    g.addColorStop(0, "rgba(0,0,0,0)");
+    g.addColorStop(1, "rgba(0,0,0,0.55)");
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, viewW, viewH);
+  }
+
+  function ellipse(x, y, rx, ry) {
+    ctx.beginPath();
+    ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  function circle(x, y, r) {
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  function shade(hex, mul) {
+    var n = parseInt(hex.slice(1), 16);
+    var r = clamp(Math.round(((n >> 16) & 255) * mul), 0, 255);
+    var g = clamp(Math.round(((n >> 8) & 255) * mul), 0, 255);
+    var b = clamp(Math.round((n & 255) * mul), 0, 255);
+    return "rgb(" + r + "," + g + "," + b + ")";
+  }
+
+  // =====================================================================
+  // HUD
+  // =====================================================================
+
+  var elState, elLamp, elKO, elHint, hintTimer = null;
+
+  function setScore() { if (elKO) elKO.textContent = String(ko); }
+
+  function syncHud() {
+    if (!elState) return;
+    var label, cls;
+    if (tongue.state === "extend") { label = "EXTEND " + tongue.len.toFixed(1); cls = "extend"; }
+    else if (tongue.state === "retract") { label = "RETRACT " + tongue.len.toFixed(1); cls = "retract"; }
+    else if (player.state === "hop") { label = "HOP"; cls = "hop"; }
+    else { label = "IDLE"; cls = "idle"; }
+    if (elState.textContent !== label) elState.textContent = label;
+    if (elLamp.className !== "lamp " + cls) elLamp.className = "lamp " + cls;
+  }
+
+  function fadeHint() {
+    if (!elHint || hintTimer) return;
+    hintTimer = setTimeout(function () { elHint.classList.add("away"); }, 2600);
+  }
+
+  // =====================================================================
+  // TUNING DRAWER
+  // =====================================================================
+
+  var STORE_KEY = "frogjoust.tuning.v1";
+
+  function loadTuning() {
+    try {
+      var raw = localStorage.getItem(STORE_KEY);
+      if (!raw) return;
+      var saved = JSON.parse(raw);
+      for (var i = 0; i < TUNABLE.length; i++) {
+        var key = TUNABLE[i].key;
+        if (typeof saved[key] === "number") CFG[key] = saved[key];
+      }
+    } catch (e) { /* storage unavailable */ }
+  }
+
+  function saveTuning() {
+    try {
+      var out = {};
+      for (var i = 0; i < TUNABLE.length; i++) out[TUNABLE[i].key] = CFG[TUNABLE[i].key];
+      localStorage.setItem(STORE_KEY, JSON.stringify(out));
+    } catch (e) { /* storage unavailable */ }
+  }
+
+  function buildTuners(host) {
+    host.innerHTML = "";
+    TUNABLE.forEach(function (t) {
+      var wrap = document.createElement("div");
+      wrap.className = "tuner";
+
+      var label = document.createElement("label");
+      label.textContent = t.label;
+      label.htmlFor = "fj-t-" + t.key;
+
+      var out = document.createElement("output");
+      var input = document.createElement("input");
+      input.type = "range";
+      input.id = "fj-t-" + t.key;
+      input.min = t.min; input.max = t.max; input.step = t.step;
+      input.value = CFG[t.key];
+
+      function show() {
+        var v = CFG[t.key];
+        out.textContent = (t.step < 1 ? v.toFixed(String(t.step).split(".")[1].length) : v) + t.unit;
+      }
+      input.addEventListener("input", function () {
+        CFG[t.key] = parseFloat(input.value);
+        show();
+        saveTuning();
+      });
+      t._sync = function () { input.value = CFG[t.key]; show(); };
+      show();
+
+      wrap.appendChild(label);
+      wrap.appendChild(out);
+      wrap.appendChild(input);
+      host.appendChild(wrap);
+    });
+  }
+
+  // =====================================================================
+  // BOOT
+  // =====================================================================
+
+  function bindDom() {
+    canvas = document.getElementById("fj-canvas");
+    ctx = canvas.getContext("2d");
+    elState = document.getElementById("fj-state");
+    elLamp = document.getElementById("fj-lamp");
+    elKO = document.getElementById("fj-ko");
+    elHint = document.getElementById("fj-hint");
+
+    window.addEventListener("resize", resize);
+    if (window.visualViewport) window.visualViewport.addEventListener("resize", resize);
+    resize();
+
+    canvas.addEventListener("pointerdown", function (e) {
+      if (input.pointerId !== null) return;      // one finger drives the frog
+      input.pointerId = e.pointerId;
+      canvas.setPointerCapture(e.pointerId);
+      pressDown(e.clientX, e.clientY);
+      e.preventDefault();
+    });
+    canvas.addEventListener("pointermove", function (e) {
+      if (e.pointerId !== input.pointerId) return;
+      pressMove(e.clientX, e.clientY);
+      e.preventDefault();
+    });
+    function release(e) {
+      if (e.pointerId !== input.pointerId) return;
+      input.pointerId = null;
+      pressUp();
+      e.preventDefault();
+    }
+    canvas.addEventListener("pointerup", release);
+    canvas.addEventListener("pointercancel", release);
+    canvas.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+
+    window.addEventListener("keydown", function (e) {
+      if (e.repeat) return;
+      var key = e.key === " " ? " " : e.key;
+      input.keys[key] = true;
+      if (key === " ") {
+        input.holding = true;
+        input.consumed = false;
+        fadeHint();
+        e.preventDefault();
+      } else if (KEY_VEC[key]) {
+        if (!input.keys[" "]) {
+          var v = KEY_VEC[key];
+          requestHop(unproj(v[0], v[1]));
+          fadeHint();
+        }
+        e.preventDefault();
+      }
+    });
+    window.addEventListener("keyup", function (e) {
+      var key = e.key === " " ? " " : e.key;
+      input.keys[key] = false;
+      if (key === " ") pressUp();
+    });
+
+    var drawer = document.getElementById("fj-drawer");
+    buildTuners(document.getElementById("fj-tuners"));
+    document.getElementById("fj-tune").addEventListener("click", function () {
+      drawer.classList.toggle("open");
+    });
+    document.getElementById("fj-close").addEventListener("click", function () {
+      drawer.classList.remove("open");
+    });
+    document.getElementById("fj-defaults").addEventListener("click", function () {
+      TUNABLE.forEach(function (t) { CFG[t.key] = DEFAULTS[t.key]; t._sync(); });
+      saveTuning();
+    });
+    document.getElementById("fj-reset").addEventListener("click", function () {
+      reset();
+      setScore();
+    });
+  }
+
+  var last = 0, acc = 0;
+
+  function frame(ts) {
+    if (!last) last = ts;
+    var dt = Math.min((ts - last) / 1000, 0.1);
+    last = ts;
+    acc += dt;
+    var guard = 0;
+    while (acc >= FIXED_DT && guard++ < 12) {
+      update(FIXED_DT);
+      acc -= FIXED_DT;
+    }
+    render();
+    syncHud();
+    requestAnimationFrame(frame);
+  }
+
+  loadTuning();
+  reset();
+
+  // Headless harness (tests) drives update() itself and never touches the DOM.
+  if (typeof globalThis !== "undefined" && globalThis.__FJ_HEADLESS__) {
+    globalThis.FrogJoust = {
+      CFG: CFG, update: update, reset: reset, input: input,
+      state: function () { return { player: player, tongue: tongue, enemies: enemies, debris: debris, ko: ko }; },
+      startTongue: startTongue, requestHop: requestHop, snapDir: snapDir, unproj: unproj
+    };
+  } else {
+    bindDom();
+    setScore();
+    requestAnimationFrame(frame);
+  }
+})();
+</script>
+<!-- ===== ARTIFACT BODY END ===== -->
+</body>
+</html>
