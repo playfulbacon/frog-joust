@@ -71,7 +71,7 @@ device before a gesture.
 | **The Tiltyard** | Bare ground. Just the knights and room to work. |
 | **Millrace** | One stream through the middle. |
 | **Twin Races** | Two streams running opposite ways, dry ground between. |
-| **The King's Road** | A two-lane road, carts in both directions. |
+| **The King's Road** | A two-lane road, horse-drawn carts in both directions. |
 | **Toll Crossing** | Stream, road, stream. |
 
 Each is a stack of lanes — grass, water or road — and the water and road lanes
@@ -96,7 +96,10 @@ carry their own traffic. Adding one is a few lines in `LEVELS`.
 - While the tongue is out, the direction input steers **the tongue** instead.
 - The tongue is live along its outer length, not just at the tip, so sweeping
   it across a rival on the way home counts.
-- Water drowns you and carts flatten you. A log carries you while you stand on
+- Water drowns you and carts run you down — each one a horse in the shafts and
+  a driver on the bench, wheels turning with the ground they cover, so the
+  traffic reads as something a knight might actually meet on a road. A log
+  carries you while you stand on
   it, and **a log that reaches the end of the level goes under**, taking you
   with it unless something else is beneath you by then.
 - Rival knights carry exactly the same tongue you do, and will use it. Their
@@ -106,6 +109,9 @@ carry their own traffic. Adding one is a few lines in `LEVELS`.
   hit, which turns a head-on charge into a parry rather than a race to see who
   registered first. It throws off a burst at the point of contact — mid-air
   between the two, not at either mouth — so you can see where you were beaten.
+- **A knight's tongue dies with him.** Nothing updates a dead mount, so a
+  tongue left extended at the moment of the blow would lie across the field
+  for good — every death cancels it, including being unhorsed mid-shot.
 - A struck knight is thrown **the way the blow was going**, with some scatter,
   so a sweep sends them sideways rather than back along the tongue. In the air
   he has a bare head rather than a helm, because the helm is on the grass
@@ -307,5 +313,6 @@ hard off all eight edges and corners all stay on the board and none goes
 missing, that a rival crosses the field to steal a helm, that lives run down
 and end the round and that a finished round stops simulating, that movement
 frees up the instant you release,
-that a rival closes and eventually unhorses you, and that every level loads and
-starts you somewhere dry.
+that a rival closes and eventually unhorses you, that a knight unhorsed with
+his tongue still out takes it with him rather than leaving it lying on the
+field, and that every level loads and starts you somewhere dry.

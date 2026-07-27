@@ -1489,6 +1489,11 @@
       if (combo > 1) sfx.combo(combo);
     }
 
+    // Take the tongue with him. Every other way of dying cancels it, and
+    // without this one a knight unhorsed mid-shot leaves his tongue lying
+    // across the field: nothing updates a dead mount, so it never reels in.
+    cancelTongue(mount);
+
     throwRider(mount, dir, 250);
     dropHelmet(mount, dir);
     sfx.hit();
@@ -2237,7 +2242,9 @@
     }
 
     var mounts = allMounts();
-    for (var t = 0; t < mounts.length; t++) drawTongue(mounts[t]);
+    for (var t = 0; t < mounts.length; t++) {
+      if (!mounts[t].dead && !mounts[t].out) drawTongue(mounts[t]);
+    }
     drawSparks();
     drawPops();
 
@@ -2492,39 +2499,161 @@
     ctx.restore();
   }
 
+  var COATS = ["#6b4a2f", "#33261d", "#8d6a44", "#4d3628", "#9c8a72"];
+  var WOODS = ["#7a4a2a", "#6a5236", "#5f4632", "#7d5a34", "#55402b"];
+  var LOADS = ["#b8452f", "#2f6fb8", "#c9a227", "#6b4bb0", "#3f8f5a"];
+
+  // A horse and cart, drawn facing east and mirrored when it travels west.
   function drawCar(z) {
     var p = proj(z.x, z.y, 0);
-    var w = z.len * CFG.cell, h = CFG.cell * ISO * 0.86;
-    var hue = Math.floor(z.tint * 5);
-    var body = ["#b8452f", "#2f6fb8", "#c9a227", "#6b4bb0", "#3f8f5a"][hue];
+    var w = z.len * CFG.cell, h = CFG.cell * ISO * 0.9;
+    var pick = Math.floor(z.tint * 5) % 5;
+    var coat = COATS[pick], wood = WOODS[pick], load = LOADS[pick];
+    var ground = h * 0.45;
+
     ctx.save();
     ctx.translate(p.x, p.y);
 
-    ctx.fillStyle = "rgba(4,10,10,0.35)";
+    ctx.fillStyle = "rgba(4,10,10,0.32)";
     ctx.beginPath();
-    ctx.ellipse(0, h * 0.42, w * 0.48, h * 0.22, 0, 0, Math.PI * 2);
+    ctx.ellipse(0, ground * 0.75, w * 0.5, h * 0.18, 0, 0, Math.PI * 2);
     ctx.fill();
 
-    ctx.fillStyle = "#181c1f";
-    roundRect(-w * 0.42, h * 0.1, w * 0.84, h * 0.36, h * 0.16);
+    if (z.vx < 0) ctx.scale(-1, 1);
+
+    // --- the cart, behind ------------------------------------------------
+    ctx.strokeStyle = "rgba(28,18,10,0.55)";
+    ctx.lineWidth = 1.4;
+
+    ctx.fillStyle = shade(wood, 0.75);                    // shafts to the horse
+    ctx.fillRect(-w * 0.08, -h * 0.10, w * 0.30, h * 0.05);
+    ctx.fillRect(-w * 0.08, h * 0.02, w * 0.30, h * 0.05);
+
+    var wheelR = h * 0.28;
+    drawWheel(-w * 0.36, ground - wheelR, wheelR, z, wood);
+    drawWheel(-w * 0.11, ground - wheelR, wheelR, z, wood);
+
+    ctx.fillStyle = wood;                                 // bed
+    roundRect(-w * 0.48, -h * 0.26, w * 0.44, h * 0.38, h * 0.07);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = load;                                 // the load it carries
+    roundRect(-w * 0.44, -h * 0.52, w * 0.30, h * 0.28, h * 0.06);
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.16)";
+    roundRect(-w * 0.42, -h * 0.49, w * 0.26, h * 0.09, h * 0.04);
     ctx.fill();
 
-    ctx.fillStyle = body;
-    roundRect(-w / 2, -h / 2, w, h * 0.8, h * 0.22);
+    ctx.fillStyle = "#4a3a26";                            // driver on the bench
+    roundRect(-w * 0.145, -h * 0.50, w * 0.085, h * 0.26, h * 0.05);
     ctx.fill();
-    ctx.fillStyle = shade(body, 1.25);
-    roundRect(-w * 0.26, -h * 0.44, w * 0.5, h * 0.4, h * 0.14);
-    ctx.fill();
-    ctx.fillStyle = "rgba(220,240,250,0.55)";
-    roundRect(-w * 0.2, -h * 0.38, w * 0.38, h * 0.26, h * 0.1);
+    ctx.fillStyle = "#d8b98f";
+    circle(-w * 0.10, -h * 0.56, h * 0.095);              // his head
+    ctx.fillStyle = "#5a4630";
+    ctx.beginPath();                                      // and his hat
+    ctx.arc(-w * 0.10, -h * 0.58, h * 0.115, Math.PI * 1.02, Math.PI * 1.98);
+    ctx.closePath();
     ctx.fill();
 
-    // lamps at the leading end
-    ctx.fillStyle = "#ffe9a8";
-    var lx = z.vx > 0 ? w / 2 - h * 0.16 : -w / 2 + h * 0.16;
+    // --- the horse, in front ---------------------------------------------
+    var far = shade(coat, 0.72);
+
+    ctx.strokeStyle = far;                                // tail, off the rump
+    ctx.lineWidth = Math.max(2, h * 0.10);
+    ctx.lineCap = "round";
     ctx.beginPath();
-    ctx.ellipse(lx, -h * 0.02, h * 0.11, h * 0.16, 0, 0, Math.PI * 2);
+    ctx.moveTo(w * 0.145, -h * 0.14);
+    ctx.quadraticCurveTo(w * 0.09, -h * 0.02, w * 0.10, h * 0.20);
+    ctx.stroke();
+
+    // Far legs first and darker, near legs after the body, so it has depth.
+    ctx.lineWidth = Math.max(2, h * 0.078);
+    function leg(x0, x1, colour) {
+      ctx.strokeStyle = colour;
+      ctx.beginPath();
+      ctx.moveTo(x0, h * 0.10);
+      ctx.lineTo(x1, ground);
+      ctx.stroke();
+    }
+    leg(w * 0.21, w * 0.17, far);
+    leg(w * 0.37, w * 0.41, far);
+
+    ctx.fillStyle = coat;                                 // barrel
+    ellipse(w * 0.29, h * 0.00, w * 0.145, h * 0.235);
+    ctx.fillStyle = shade(coat, 1.08);                    // chest and shoulder
+    ellipse(w * 0.385, h * 0.02, w * 0.075, h * 0.185);
+    ctx.fillStyle = shade(coat, 0.92);                    // haunch
+    ellipse(w * 0.185, -h * 0.02, w * 0.085, h * 0.21);
+
+    leg(w * 0.235, w * 0.245, coat);
+    leg(w * 0.40, w * 0.375, coat);
+
+    ctx.fillStyle = coat;                                 // neck, short and low
+    ctx.beginPath();
+    ctx.moveTo(w * 0.365, -h * 0.16);
+    ctx.quadraticCurveTo(w * 0.44, -h * 0.34, w * 0.485, -h * 0.44);
+    ctx.lineTo(w * 0.525, -h * 0.34);
+    ctx.quadraticCurveTo(w * 0.47, -h * 0.22, w * 0.44, h * 0.02);
+    ctx.closePath();
     ctx.fill();
+
+    ctx.save();                                           // head, pointing on
+    ctx.translate(w * 0.505, -h * 0.44);
+    ctx.rotate(0.62);
+    ctx.fillStyle = coat;
+    ellipse(0, 0, h * 0.20, h * 0.105);
+    ctx.fillStyle = shade(coat, 0.72);
+    ellipse(h * 0.15, h * 0.015, h * 0.075, h * 0.075);   // muzzle
+    ctx.fillStyle = "#0f0b07";
+    circle(-h * 0.02, -h * 0.045, h * 0.032);             // eye
+    ctx.fillStyle = coat;
+    ctx.beginPath();                                      // ear
+    ctx.moveTo(-h * 0.13, -h * 0.06);
+    ctx.lineTo(-h * 0.20, -h * 0.19);
+    ctx.lineTo(-h * 0.07, -h * 0.10);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+
+    ctx.strokeStyle = shade(coat, 0.5);                   // mane along the crest
+    ctx.lineWidth = Math.max(1.8, h * 0.08);
+    ctx.beginPath();
+    ctx.moveTo(w * 0.495, -h * 0.46);
+    ctx.quadraticCurveTo(w * 0.43, -h * 0.30, w * 0.375, -h * 0.16);
+    ctx.stroke();
+
+    ctx.strokeStyle = "rgba(30,20,12,0.6)";               // harness
+    ctx.lineWidth = Math.max(1.4, h * 0.05);
+    ctx.beginPath();
+    ctx.moveTo(w * 0.355, -h * 0.16);
+    ctx.lineTo(w * 0.40, h * 0.12);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  function drawWheel(cx, cy, r, z, wood) {
+    var spin = clockT * z.vx * 1.8;
+    ctx.save();
+    ctx.translate(cx, cy);
+    ctx.fillStyle = "#241a12";
+    circle(0, 0, r);
+    ctx.fillStyle = shade(wood, 1.2);
+    circle(0, 0, r * 0.82);
+    ctx.fillStyle = "#241a12";
+    circle(0, 0, r * 0.62);
+    ctx.strokeStyle = shade(wood, 1.35);
+    ctx.lineWidth = Math.max(1.4, r * 0.16);
+    for (var k = 0; k < 4; k++) {
+      var a = spin + (k * Math.PI) / 4;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a) * r * 0.7, Math.sin(a) * r * 0.7);
+      ctx.lineTo(-Math.cos(a) * r * 0.7, -Math.sin(a) * r * 0.7);
+      ctx.stroke();
+    }
+    ctx.fillStyle = shade(wood, 1.5);
+    circle(0, 0, r * 0.2);
     ctx.restore();
   }
 

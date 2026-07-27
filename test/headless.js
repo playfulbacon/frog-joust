@@ -1414,6 +1414,59 @@ function duel(versusMode) {
     "and steps off before it reaches the end of the level");
 }
 
+// --- 26. a dead knight takes his tongue with him -------------------------
+{
+  // Unhorse a rival while its own tongue is out. Nothing updates a dead
+  // mount, so a tongue left extended here would hang across the field until
+  // the rival respawned seconds later.
+  FJ.loadLevel(PLAIN);
+  clearHazards();
+  const s = FJ.state();
+  const foe = loneRival(0, -R() + 3);
+  foe.hopTimer = 1e6; foe.restTimer = 1e6;
+  // Pointing AWAY from the player, so its tongue cannot clash with the one
+  // coming for it — a clash would make both retract and the hit would never
+  // land, which is a different situation from the one being tested.
+  foe.face = { x: 0, y: 1 };
+  foe.attacking = true; foe.holdTimer = 5;
+  FJ.startTongue(foe);
+
+  s.players[0].x = 0; s.players[0].y = -R() + 1;
+  s.players[0].face = { x: 0, y: 1 };
+  s.players[0].dying = null; s.players[0].safeT = 1e6;
+
+  step(0.12);
+  check(FJ.state().enemies[0].tongue.state !== "idle",
+    "the rival has its tongue out, as set up");
+
+  FJ.input.downAt = performanceNow();
+  FJ.input.holding = true;
+  FJ.input.consumed = false;
+  FJ.input.steer.x = 0; FJ.input.steer.y = 0;
+
+  // Watch the exact frame it dies, and what its tongue was doing just before.
+  let stateBeforeDeath = null;
+  for (let i = 0; i < 200; i++) {
+    const was = FJ.state().enemies[0].tongue.state;
+    step(DT);
+    if (FJ.state().enemies[0].dead) { stateBeforeDeath = was; break; }
+  }
+  check(FJ.state().enemies[0].dead, "and is then unhorsed, as set up");
+  check(stateBeforeDeath && stateBeforeDeath !== "idle",
+    `with its tongue still out at the moment of the blow (${stateBeforeDeath})`);
+
+  const t = FJ.state().enemies[0].tongue;
+  check(t.state === "idle" && t.len === 0,
+    `an unhorsed knight's tongue goes with him (state ${t.state}, len ${t.len})`);
+
+  // And it stays gone — nothing brings a dead mount's tongue back.
+  step(1.5);
+  const later = FJ.state().enemies[0].tongue;
+  check(later.state === "idle" && later.len === 0, "and does not come back");
+  FJ.input.holding = false;
+  step(1.2);
+}
+
 // --- 13. every level loads and is survivable to stand on ----------------
 {
   for (let i = 0; i < FJ.LEVELS.length; i++) {
