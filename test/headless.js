@@ -1118,6 +1118,129 @@ function freshLevel(i = 0) {
   check(FJ.state().helmets.length === 1, "and drops a helm for you to go and fetch");
 }
 
+// --- 22. two knights on one couch ---------------------------------------
+{
+  FJ.join();
+  FJ.loadLevel(PLAIN);
+  const s = FJ.state();
+  check(s.players.length === 2, "player two joins the party");
+  check(s.players[0] !== s.players[1] &&
+        (s.players[0].x !== s.players[1].x || s.players[0].y !== s.players[1].y),
+    "and they start on separate squares");
+  check(s.players[1].seat === 1, "with their own seat, and so their own controls");
+  check(s.players[0].armor !== s.players[1].armor, "and their own colours");
+}
+
+// Aim one knight's tongue squarely at the other and see what each mode does.
+function duel(versusMode) {
+  FJ.join();
+  FJ.setVersus(versusMode);
+  FJ.loadLevel(PLAIN);
+  clearHazards();
+  benchRivals();
+  const s = FJ.state();
+  const [a, b] = s.players;
+  a.x = 0; a.y = 0; a.face = { x: 0, y: 1 };
+  b.x = 0; b.y = 2;
+  a.dying = null; b.dying = null;
+  a.safeT = 0; b.safeT = 0;
+  a.score = 0; b.score = 0;
+
+  FJ.input.downAt = performanceNow();
+  FJ.input.holding = true;
+  FJ.input.consumed = false;
+  FJ.input.steer.x = 0; FJ.input.steer.y = 0;
+  step(0.8);
+  const out = { hit: !!FJ.state().players[1].dying, score: FJ.state().players[0].score };
+  FJ.input.holding = false;
+  step(1.2);
+  return out;
+}
+
+{
+  const coop = duel(false);
+  check(!coop.hit, "in co-op your tongue passes straight through your partner");
+  check(coop.score === 0, "and there is nothing to be gained by trying");
+
+  const vs = duel(true);
+  check(vs.hit, "in versus it knocks them clean off");
+  check(vs.score === FJ.CFG.pointsUnhorse,
+    `and scores you ${FJ.CFG.pointsUnhorse} for it (${vs.score})`);
+}
+
+{
+  // Rivals chase whoever is nearest, not always seat one.
+  FJ.join();
+  FJ.setVersus(false);
+  FJ.loadLevel(PLAIN);
+  clearHazards();
+  const s = FJ.state();
+  const foe = loneRival(4, 0);
+  foe.restTimer = 1e6;                       // walk, do not shoot
+  s.players[0].x = -4; s.players[0].y = 0; s.players[0].safeT = 1e6;
+  s.players[1].x = 2; s.players[1].y = 0; s.players[1].safeT = 1e6;
+  s.players[0].dying = null; s.players[1].dying = null;
+
+  const gapBefore = Math.abs(foe.x - s.players[1].x);
+  step(1.6);
+  const gapAfter = Math.abs(FJ.state().enemies[0].x - FJ.state().players[1].x);
+  check(gapAfter < gapBefore,
+    `a rival goes for the nearer knight (${gapBefore} -> ${gapAfter.toFixed(2)})`);
+}
+
+{
+  // Lives and the end of a two-player round.
+  FJ.join();
+  FJ.setVersus(false);
+  FJ.loadLevel(MILLRACE);
+  clearHazards();
+  benchRivals();
+  const waterRow = FJ.state().lanes.findIndex(l => l.type === "water") - R();
+  const s = FJ.state();
+  check(s.players[0].lives === s.players[1].lives,
+    "each knight has their own stable of lives");
+
+  // Drown seat one until the stable is empty. Capture the count first: reading
+  // it in the loop condition while it decrements exits half way through.
+  const stable = s.players[0].lives;
+  for (let i = 0; i < stable; i++) {
+    const p = FJ.state().players[0];
+    p.x = 0; p.y = waterRow; p.state = "idle"; p.dying = null;
+    step(2.2);
+  }
+  check(FJ.state().players[0].out, "one knight can be knocked out of the round");
+  check(FJ.state().players[1].lives > 0, "without costing the other a thing");
+  check(!FJ.state().over, "and in co-op the round continues while one still rides");
+
+  const stable2 = FJ.state().players[1].lives;
+  for (let i = 0; i < stable2; i++) {
+    const p = FJ.state().players[1];
+    p.x = 0; p.y = waterRow; p.state = "idle"; p.dying = null;
+    step(2.2);
+  }
+  check(FJ.state().over, "it ends when the last knight is out");
+}
+
+{
+  // In versus, the round ends the moment one of them is finished.
+  FJ.join();
+  FJ.setVersus(true);
+  FJ.loadLevel(MILLRACE);
+  clearHazards();
+  benchRivals();
+  const waterRow = FJ.state().lanes.findIndex(l => l.type === "water") - R();
+  const vsStable = FJ.state().players[0].lives;
+  for (let i = 0; i < vsStable; i++) {
+    const p = FJ.state().players[0];
+    p.x = 0; p.y = waterRow; p.state = "idle"; p.dying = null;
+    step(2.2);
+  }
+  check(FJ.state().over, "in versus the round ends as soon as one is finished");
+  check(!FJ.state().players[1].out, "leaving the other still mounted, as the winner");
+
+  FJ.setVersus(false);
+}
+
 // --- 13. every level loads and is survivable to stand on ----------------
 {
   for (let i = 0; i < FJ.LEVELS.length; i++) {

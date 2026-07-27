@@ -19,12 +19,30 @@ right to go left and right. The edges are walls by default; **Wrap at edges**
 in the tuning drawer turns the board into a torus, so hopping off one side
 brings you back on the other.
 
-| Input | Touch | Keyboard |
-| --- | --- | --- |
-| Hop | Swipe anywhere (four ways) | Arrows / WASD |
-| Shoot the tongue | Press and hold | Hold Space |
-| Steer the tongue | Drag while holding | Arrows while holding Space |
-| Reel it in | Release | Release Space |
+| Input | Touch | Player one | Player two |
+| --- | --- | --- | --- |
+| Hop | Swipe anywhere (four ways) | WASD / arrows | IJKL |
+| Shoot the tongue | Press and hold | Hold Left Shift or Space | Hold Right Shift |
+| Steer the tongue | Drag while holding | Same keys while holding | Same keys while holding |
+| Reel it in | Release | Release | Release |
+
+## Two on one couch
+
+Press **Right Shift** at the menu and a second knight joins, in rose to player
+one's blue. Each has their own score, their own stable of lives, and their own
+half of the keyboard. Then pick a mode:
+
+| | |
+| --- | --- |
+| **Co-op** | Your tongues pass straight through each other. The board is the enemy. |
+| **Versus** | You can unhorse each other, for the same points as a rival, combo and all. |
+
+They differ in how a round ends, too. In co-op it runs until *both* stables are
+empty — one knight being knocked out leaves the other still riding. In versus it
+ends the moment either of you is finished, and the one still mounted takes it.
+
+Joining only takes effect on the next round, since dropping a knight into a
+fight already in progress is not a thing anyone wants.
 
 **Tune** opens sliders for every number that affects feel — including how many
 rivals there are and how bold they get — and they persist in local storage.
@@ -257,7 +275,11 @@ and sinks if it lands in open water, that two tongues meeting head-on both turn
 back with neither knight unhorsed and leave a burst between them, that no two
 mounts ever share a square across 45 simulated seconds of five rivals hunting,
 dying and respawning, that a helm comes off for a drowning and a cart strike
-as well as a tongue, that the
+as well as a tongue, that a second knight joins with their own seat, colours,
+score and lives, that co-op tongues pass through each other for nothing while
+versus ones unhorse and score, that a rival chases whichever knight is nearer,
+and that a round ends on the last stable in co-op but the first in versus, that
+the
 combo pays 1x/2x/3x within one extend and resets afterwards, that helms flung
 hard off all eight edges and corners all stay on the board and none goes
 missing, that a rival crosses the field to steal a helm, that lives run down

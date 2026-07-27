@@ -265,6 +265,48 @@
   .over-buttons { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
   .over-buttons button { padding: 11px 18px; font-size: 11px; }
 
+  .party {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 9px;
+    text-align: center;
+  }
+  .party-line {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+  }
+  .party-line b { color: var(--parchment); }
+  .party-line.joined { color: #f07ab8; }
+  .party-keys {
+    display: flex;
+    gap: 18px;
+    flex-wrap: wrap;
+    justify-content: center;
+    font-size: 9.5px;
+    letter-spacing: 0.08em;
+    color: rgba(125, 146, 135, 0.75);
+  }
+  .party-keys b { color: var(--muted); font-weight: 600; }
+  .modes { display: flex; gap: 6px; }
+  .modes[hidden] { display: none; }
+  .modes button[aria-pressed="true"] {
+    color: var(--pond-deep);
+    background: var(--gold);
+    border-color: var(--gold);
+  }
+
+  .scoreboard.duo { flex-direction: row; gap: 26px; align-items: flex-start; }
+  .scoreboard .seat { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .finalscore .vs {
+    font-family: var(--font-ui);
+    font-size: 22px;
+    color: var(--muted);
+    margin: 0 12px;
+    vertical-align: middle;
+  }
+
   .levels {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
@@ -423,13 +465,7 @@
     </div>
   </div>
 
-  <div class="scoreboard">
-    <b id="fj-score">0</b>
-    <div class="meta">
-      <span class="lives" id="fj-lives" aria-label="knights remaining"></span>
-      <span class="kos"><b id="fj-ko">0</b> unhorsed</span>
-    </div>
-  </div>
+  <div class="scoreboard" id="fj-scoreboard"></div>
 
   <p class="hint" id="fj-hint">
     <b>Swipe</b> to hop &nbsp;—&nbsp; up is forward<br>
@@ -453,6 +489,19 @@
     <div class="menu-head">
       <h2>Choose your ground</h2>
       <p>Knock the other knights off their toads. Try not to drown.</p>
+    </div>
+    <div class="party">
+      <div class="party-line" id="fj-p2">
+        Player two &mdash; press <b>Right Shift</b> to join
+      </div>
+      <div class="modes" id="fj-modes" hidden>
+        <button id="fj-coop" type="button" aria-pressed="true">Co-op</button>
+        <button id="fj-versus" type="button" aria-pressed="false">Versus</button>
+      </div>
+      <div class="party-keys">
+        <span><b>WASD</b> + <b>Shift</b> or <b>Space</b></span>
+        <span><b>IJKL</b> + <b>Right Shift</b></span>
+      </div>
     </div>
     <div class="levels" id="fj-levellist"></div>
   </div>
@@ -842,8 +891,9 @@
   // STATE
   // =====================================================================
 
-  var level, levelIndex, lanes, hazards, player, enemies, debris, helmets,
-      ripples, pops, sparks, ko, lost, lives, score, running, over;
+  var level, levelIndex, lanes, hazards, players, enemies, debris, helmets,
+      ripples, pops, sparks, ko, running, over,
+      partySize = 1, versus = false;
 
   var ARMOURS = [
     { armor: "#b0353a", trim: "#e5cfa0" },
@@ -875,6 +925,13 @@
                       limb: "#2a5636", foot: "#357a44", rim: "rgba(9,26,18,0.55)" };
   var HIDE_RIVAL  = { top: "#3f7d47", bottom: "#1d442a", head: "#356f3c",
                       limb: "#17331f", foot: "#20512c", rim: "rgba(4,14,9,0.7)" };
+
+  // Two knights can share a couch. Player one is always present; player two
+  // joins from the menu and takes the second control set.
+  var SEATS = [
+    { armor: "#2f5fd0", trim: "#e4b429", name: "Blue", css: "#5a8bf0" },
+    { armor: "#d94f9a", trim: "#f0dca8", name: "Rose", css: "#f07ab8" }
+  ];
 
   function makeMount(x, y, skin) {
     return {
@@ -915,19 +972,28 @@
     pops = [];
     sparks = [];
     ko = 0;
-    lost = 0;
-    lives = Math.max(1, Math.round(CFG.lives));
-    score = 0;
     over = false;
 
     // Let the traffic build up before anyone sees the level, or it opens on
     // an empty stream and you stand about waiting for the first log.
     for (var p = 0; p < 900; p++) updateHazards(1 / 60);
 
-    player = makeMount(0, spawnRow(), { armor: "#2f5fd0", trim: "#e4b429", hide: HIDE_PLAYER });
-    player.bob = 0;
-    player.face = { x: 0, y: -1 };
-    player.safeT = CFG.graceTime;
+    var row = spawnRow(), spread = Math.min(2, bound());
+    players = [];
+    for (var s2 = 0; s2 < partySize; s2++) {
+      var seat = SEATS[s2];
+      var at = { x: partySize === 1 ? 0 : (s2 === 0 ? -spread : spread), y: row };
+      var np = makeMount(at.x, at.y, { armor: seat.armor, trim: seat.trim, hide: HIDE_PLAYER });
+      np.bob = 0;
+      np.face = { x: 0, y: -1 };
+      np.safeT = CFG.graceTime;
+      np.seat = s2;
+      np.score = 0;
+      np.lives = Math.max(1, Math.round(CFG.lives));
+      np.lost = 0;
+      np.out = false;
+      players[s2] = np;
+    }
     enemies = [];
     for (var e = 0; e < CFG.enemyCount; e++) spawnEnemy(e);
     running = true;
@@ -963,7 +1029,7 @@
   }
 
   function spawnEnemy(i) {
-    var at = safeCell(player, 3.5);
+    var at = safeCell(players[0], 3.5);
     var m = makeMount(at.x, at.y, ARMOURS[i % ARMOURS.length]);
     m.face = { x: 0, y: 1 };
     m.hopTimer = Math.random() * CFG.enemyHopEvery;
@@ -1001,7 +1067,8 @@
   }
 
   function allMounts() {
-    var out = [player];
+    var out = [];
+    for (var q = 0; q < players.length; q++) if (players[q] && !players[q].out) out.push(players[q]);
     for (var i = 0; i < enemies.length; i++) if (enemies[i]) out.push(enemies[i]);
     return out;
   }
@@ -1016,22 +1083,27 @@
   //   release .............. tongue reels in, and you are free to move
   // =====================================================================
 
-  var input = {
-    holding: false,
-    consumed: false,
-    steer: { x: 0, y: 0 },
-    hopQueue: null,
-    pointerId: null,
-    origin: { x: 0, y: 0 },
-    downAt: 0,
-    swiped: false,
-    keys: {}
-  };
+  function makeInput() {
+    return {
+      holding: false,
+      consumed: false,
+      steer: { x: 0, y: 0 },
+      hopQueue: null,
+      pointerId: null,
+      origin: { x: 0, y: 0 },
+      downAt: 0,
+      swiped: false,
+      keys: {}
+    };
+  }
+
+  var inputs = [makeInput(), makeInput()];
+  var input = inputs[0];   // touch only ever drives the first seat
 
   function now() { return (typeof performance !== "undefined" ? performance.now() : 0); }
 
-  function requestHop(screenDelta) {
-    input.hopQueue = snapDir(screenDelta.x, screenDelta.y);
+  function requestHop(screenDelta, seat) {
+    inputs[seat || 0].hopQueue = snapDir(screenDelta.x, screenDelta.y);
   }
 
   function pressDown(x, y) {
@@ -1058,7 +1130,7 @@
       input.holding = false;
       // Only kill a tongue THIS press started. One that is already reeling in
       // belongs to the previous shot and must be left to finish.
-      if (player.tongue.state === "extend") cancelTongue(player);
+      if (players[0].tongue.state === "extend") cancelTongue(players[0]);
       requestHop({ x: dx, y: dy });
       return;
     }
@@ -1079,16 +1151,17 @@
     input.steer.x = 0; input.steer.y = 0;
   }
 
-  var KEY_VEC = {
-    ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0],
-    w: [0, -1], s: [0, 1], a: [-1, 0], d: [1, 0]
-  };
+  var KEY_VEC = [
+    { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0],
+      w: [0, -1], s: [0, 1], a: [-1, 0], d: [1, 0] },
+    { i: [0, -1], k: [0, 1], j: [-1, 0], l: [1, 0] }
+  ];
 
-  function keyVector() {
-    var sx = 0, sy = 0;
-    for (var key in input.keys) {
-      if (!input.keys[key]) continue;
-      var v = KEY_VEC[key];
+  function keyVector(seat) {
+    var sx = 0, sy = 0, map = KEY_VEC[seat], keys = inputs[seat].keys;
+    for (var key in keys) {
+      if (!keys[key]) continue;
+      var v = map[key];
       if (v) { sx += v[0]; sy += v[1]; }
     }
     if (!sx && !sy) return null;
@@ -1137,7 +1210,7 @@
       var full = t.len >= CFG.tongueMax - 1e-9;
       if (full || (!held && t.t >= CFG.minExtend)) {
         t.state = "retract";
-        if (m === player) sfx.tongueBack();
+        if (isPlayer(m)) sfx.tongueBack();
       }
     } else {
       t.len -= CFG.retractSpeed * dt;
@@ -1261,12 +1334,27 @@
       if (target === m || !target.rider || target.dying) continue;
       // A freshly respawned knight gets a moment to get their bearings, or
       // three rivals standing over the spawn will simply farm you.
-      if (target === player && player.safeT > 0) continue;
+      if (isPlayer(target) && target.safeT > 0) continue;
+      // In co-op the two of you cannot touch each other; in versus that is
+      // the entire point.
+      if (!versus && isPlayer(m) && isPlayer(target)) continue;
       for (var i = 5; i < t.nodes.length; i++) {
         if (wrapDist(t.nodes[i], target) < CFG.hitRadius) {
           var dir = hitDirection(m, target, dt);
-          if (target === player) killPlayer("tongue", dir);
+          if (isPlayer(target)) killPlayer(target, "tongue", dir);
           else unhorse(target, dir, m);
+          if (isPlayer(target) && isPlayer(m)) {
+            // Knocking the other knight off in versus is worth the same as a
+            // rival, combo and all.
+            var combo = ++m.tongue.hits;
+            var gain = CFG.pointsUnhorse * combo;
+            m.score += gain;
+            pops.push({
+              x: target.x, y: target.y, t: 0, mine: true,
+              text: "+" + gain + (combo > 1 ? "  x" + combo : "")
+            });
+            setScore();
+          }
           break;
         }
       }
@@ -1334,6 +1422,11 @@
     }
   }
 
+  function isPlayer(m) {
+    for (var i = 0; i < players.length; i++) if (players[i] === m) return true;
+    return false;
+  }
+
   function unhorse(mount, dir, attacker) {
     mount.rider = false;
     mount.dead = true;
@@ -1345,9 +1438,9 @@
     // picking them off one at a time.
     var combo = 1;
     if (attacker) combo = ++attacker.tongue.hits;
-    if (attacker === player) {
+    if (attacker && isPlayer(attacker)) {
       var gain = CFG.pointsUnhorse * combo;
-      addScore(gain);
+      addScore(attacker, gain);
       pops.push({
         x: mount.x, y: mount.y, t: 0, mine: true,
         text: "+" + gain + (combo > 1 ? "  x" + combo : "")
@@ -1387,8 +1480,8 @@
     });
   }
 
-  function addScore(n) {
-    score += n;
+  function addScore(p, n) {
+    p.score += n;
     setScore();
   }
 
@@ -1519,99 +1612,110 @@
     return log;
   }
 
-  function updatePlayer(dt) {
-    if (player.safeT > 0) player.safeT -= dt;
-    if (player.dying) {
-      player.dyingT -= dt;
-      if (player.dyingT <= 0) {
-        if (lives > 0) respawnPlayer();
-        else endRound();
+  function updatePlayer(p, dt) {
+    if (p.out) return;
+    var inp = inputs[p.seat];
+    if (p.safeT > 0) p.safeT -= dt;
+    if (p.dying) {
+      p.dyingT -= dt;
+      if (p.dyingT <= 0) {
+        if (p.lives > 0) respawnPlayer(p);
+        else { p.out = true; checkRoundOver(); }
       }
       return;
     }
 
-    if (player.state === "idle") {
+    if (p.state === "idle") {
       // Movement is locked only while the tongue is going OUT. Letting go ends
       // the commitment: you can hop away while it is still reeling in.
-      if (player.tongue.state !== "extend" && input.hopQueue) {
-        startHop(player, input.hopQueue);
-        input.hopQueue = null;
+      if (p.tongue.state !== "extend" && inp.hopQueue) {
+        startHop(p, inp.hopQueue);
+        inp.hopQueue = null;
         sfx.hop();
-      } else if (player.tongue.state === "extend") {
-        input.hopQueue = null;
+      } else if (p.tongue.state === "extend") {
+        inp.hopQueue = null;
       }
     }
 
-    if (player.state === "hop") {
-      if (advanceHop(player, dt)) sfx.land();
+    if (p.state === "hop") {
+      if (advanceHop(p, dt)) sfx.land();
     } else {
-      player.bob += dt * 2.2;
-      player.z = 1.2 + Math.sin(player.bob) * 1.2;
-      driftOnLog(player, dt);
+      p.bob += dt * 2.2;
+      p.z = 1.2 + Math.sin(p.bob) * 1.2;
+      driftOnLog(p, dt);
     }
 
-    checkPlayerFate();
+    checkPlayerFate(p);
   }
 
-  function checkPlayerFate() {
-    if (player.dying || player.state === "hop") return;
+  function checkPlayerFate(p) {
+    if (p.dying || p.state === "hop") return;
     var R = bound();
 
     // Carried past the end of the level by a log. Note this is NOT a wrap:
     // drifting off the edge drowns you, only hops come out the other side.
-    if (Math.abs(player.x) > R + 0.5) { killPlayer("water"); return; }
+    if (Math.abs(p.x) > R + 0.5) { killPlayer(p, "water"); return; }
 
-    var lane = laneAt(player.y);
-    if (lane.type === "water" && !supportUnder(player)) { killPlayer("water"); return; }
-    var car = carHitting(player);
-    if (car) { killPlayer("car", { x: car.vx > 0 ? 1 : -1, y: 0 }); return; }
+    var lane = laneAt(p.y);
+    if (lane.type === "water" && !supportUnder(p)) { killPlayer(p, "water"); return; }
+    var car = carHitting(p);
+    if (car) { killPlayer(p, "car", { x: car.vx > 0 ? 1 : -1, y: 0 }); return; }
   }
 
-  function killPlayer(cause, dir) {
-    if (player.dying) return;
-    player.dying = cause;
-    player.dyingT = 1.15;
-    player.rider = false;
-    lost++;
-    lives--;
-    cancelTongue(player);
-    input.hopQueue = null;
-    input.consumed = true;
+  // A round is over when nobody is left standing — or, in versus, the moment
+  // only one of the two still has knights in the stable.
+  function checkRoundOver() {
+    var alive = 0;
+    for (var i = 0; i < players.length; i++) if (!players[i].out) alive++;
+    if (alive === 0 || (versus && players.length > 1 && alive <= 1)) endRound();
+  }
+
+  function killPlayer(p, cause, dir) {
+    if (p.dying) return;
+    var inp = inputs[p.seat];
+    p.dying = cause;
+    p.dyingT = 1.15;
+    p.rider = false;
+    p.lost++;
+    p.lives--;
+    cancelTongue(p);
+    inp.hopQueue = null;
+    inp.consumed = true;
     // However a knight goes down, the helm comes off with him. Drowning is
     // the one case where he does not tumble clear - he goes under with his
     // toad - but the helm still skips away and may well land dry.
     var fall = dir || { x: Math.random() * 2 - 1, y: Math.random() * 2 - 1 };
     if (cause === "water") {
       sfx.splash();
-      ripples.push({ x: player.x, y: player.y, t: 0 });
+      ripples.push({ x: p.x, y: p.y, t: 0 });
     } else if (cause === "car") {
       sfx.squash();
-      addSpark(player.x, player.y, "impact");
-      throwRider(player, fall, 180);
+      addSpark(p.x, p.y, "impact");
+      throwRider(p, fall, 180);
     } else {
       sfx.hit();
-      throwRider(player, fall, 240);
+      throwRider(p, fall, 240);
     }
-    dropHelmet(player, fall);
+    dropHelmet(p, fall);
     setScore();
   }
 
-  function respawnPlayer() {
+  function respawnPlayer(p) {
     // Home square if it is free, otherwise the nearest empty one along the row.
     var row = spawnRow(), R = bound(), at = { x: 0, y: row };
     for (var d = 0; d <= R; d++) {
-      if (!cellOccupied(wrapCoord(d), row, player)) { at.x = wrapCoord(d); break; }
-      if (!cellOccupied(wrapCoord(-d), row, player)) { at.x = wrapCoord(-d); break; }
+      if (!cellOccupied(wrapCoord(d), row, p)) { at.x = wrapCoord(d); break; }
+      if (!cellOccupied(wrapCoord(-d), row, p)) { at.x = wrapCoord(-d); break; }
     }
-    player.x = at.x; player.y = at.y;
-    player.z = 0;
-    player.face = { x: 0, y: -1 };
-    player.state = "idle";
-    player.hop = null;
-    player.rider = true;
-    player.dying = null;
-    player.safeT = CFG.graceTime;
-    cancelTongue(player);
+    p.x = at.x; p.y = at.y;
+    p.z = 0;
+    p.face = { x: 0, y: -1 };
+    p.state = "idle";
+    p.hop = null;
+    p.rider = true;
+    p.dying = null;
+    p.safeT = CFG.graceTime;
+    cancelTongue(p);
     sfx.respawn();
   }
 
@@ -1668,9 +1772,17 @@
   }
 
   function thinkEnemy(m, dt) {
-    var dx = wrapDelta(player.x - m.x), dy = wrapDelta(player.y - m.y);
-    var dist = Math.hypot(dx, dy);
-    var hunting = !player.dying;
+    // Whichever knight is closest is the one worth chasing.
+    var quarry = null, dist = Infinity, dx = 0, dy = 0;
+    for (var q = 0; q < players.length; q++) {
+      var pl = players[q];
+      if (pl.out || pl.dying) continue;
+      var qx = wrapDelta(pl.x - m.x), qy = wrapDelta(pl.y - m.y);
+      var d = Math.hypot(qx, qy);
+      if (d < dist) { dist = d; quarry = pl; dx = qx; dy = qy; }
+    }
+    var hunting = quarry !== null;
+    if (!hunting) { dist = Infinity; dx = 0; dy = 0; }
 
     // --- attacking
     m.restTimer -= dt;
@@ -1688,7 +1800,7 @@
     }
 
     var steer = { x: 0, y: 0 };
-    if (m.tongue.state !== "idle" && dist > 1e-3) {
+    if (m.tongue.state !== "idle" && hunting && dist > 1e-3) {
       steer.x = dx / dist; steer.y = dy / dist;
     }
     updateTongue(m, steer, m.attacking, dt);
@@ -1797,13 +1909,17 @@
 
       if (h.life > CFG.helmetLife) { helmets.splice(i, 1); continue; }
 
-      if (!player.dying && wrapDist(player, h) < CFG.helmetPickup) {
-        addScore(CFG.pointsHelmet);
+      var claimed = false;
+      for (var q = 0; q < players.length && !claimed; q++) {
+        var pl = players[q];
+        if (pl.out || pl.dying || wrapDist(pl, h) >= CFG.helmetPickup) continue;
+        addScore(pl, CFG.pointsHelmet);
         pops.push({ x: h.x, y: h.y, t: 0, text: "+" + CFG.pointsHelmet, mine: true });
         sfx.pickup();
         helmets.splice(i, 1);
-        continue;
+        claimed = true;
       }
+      if (claimed) continue;
 
       // Rivals want them too, and getting there first is the whole point of
       // the race.
@@ -1873,35 +1989,38 @@
   function update(dt) {
     if (!running) return;
 
-    // Keyboard feeds the same intents the touch layer produces.
-    if (input.keys[" "]) {
-      var kv = keyVector();
-      if (kv) {
-        // Steering is unprojected, same as a drag: the tongue goes where the
-        // key points on screen.
-        var w = unproj(kv.x, kv.y);
-        var d = Math.hypot(w.x, w.y) || 1;
-        input.steer.x = w.x / d; input.steer.y = w.y / d;
-      } else { input.steer.x = 0; input.steer.y = 0; }
-    }
-
     updateHazards(dt);
-    updatePlayer(dt);
 
-    if (!player.dying) {
+    for (var q = 0; q < players.length; q++) {
+      var p = players[q], inp = inputs[q];
+
+      // Keyboard steering, per seat: the tongue goes where the keys point on
+      // screen, unprojected exactly like a drag.
+      if (inp.holding) {
+        var kv = keyVector(q);
+        if (kv) {
+          var w = unproj(kv.x, kv.y);
+          var d = Math.hypot(w.x, w.y) || 1;
+          inp.steer.x = w.x / d; inp.steer.y = w.y / d;
+        } else if (q > 0) { inp.steer.x = 0; inp.steer.y = 0; }
+      }
+
+      updatePlayer(p, dt);
+      if (p.out || p.dying) continue;
+
       // Cutting a retraction short is only allowed once the press has outlived
       // the swipe window — otherwise a swipe away would snap the old tongue out
       // of existence instead of letting it reel in behind you.
-      var t = player.tongue;
+      var t = p.tongue;
       var free = t.state === "idle" ||
-                 (t.state === "retract" && now() - input.downAt >= CFG.swipeGrace);
-      if (free && input.holding && !input.consumed && player.state === "idle") {
-        input.consumed = true;
-        startTongue(player);
+                 (t.state === "retract" && now() - inp.downAt >= CFG.swipeGrace);
+      if (free && inp.holding && !inp.consumed && p.state === "idle") {
+        inp.consumed = true;
+        startTongue(p);
         sfx.tongueOut();
       }
-      updateTongue(player, input.steer, input.holding, dt);
-      checkTongueHits(player, dt);
+      updateTongue(p, inp.steer, inp.holding, dt);
+      checkTongueHits(p, dt);
     }
 
     updateEnemies(dt);
@@ -1953,7 +2072,9 @@
     for (var i = 0; i < enemies.length; i++) {
       if (enemies[i] && !enemies[i].dead) order.push({ d: enemies[i].y, m: enemies[i], kind: "mount" });
     }
-    order.push({ d: player.y, m: player, kind: "mount" });
+    for (var q = 0; q < players.length; q++) {
+      if (players[q] && !players[q].out) order.push({ d: players[q].y, m: players[q], kind: "mount" });
+    }
     for (var c = 0; c < hazards.length; c++) {
       if (hazards[c].kind === "car") order.push({ d: hazards[c].y, m: hazards[c], kind: "car" });
     }
@@ -2549,40 +2670,78 @@
   // HUD + MENU
   // =====================================================================
 
-  var elState, elLamp, elKO, elLost, elScore, elLives, elFinal, elOver,
+  var elState, elLamp, elBoard, elFinal, elOver, elParty, elModes,
       elHint, elLevelName, elMenu, hintTimer = null;
 
+  // One column per knight in the party: score above, a row of little helms
+  // for what is left in the stable below.
   function setScore() {
-    if (elScore) elScore.textContent = String(score);
-    if (elKO) elKO.textContent = String(ko);
-    if (!elLives) return;
+    if (!elBoard || !players) return;
     var total = Math.max(1, Math.round(CFG.lives));
-    if (elLives.childElementCount !== total) {
-      elLives.innerHTML = "";
-      for (var i = 0; i < total; i++) elLives.appendChild(document.createElement("i"));
+
+    if (elBoard.childElementCount !== players.length) {
+      elBoard.innerHTML = "";
+      for (var i = 0; i < players.length; i++) {
+        var col = document.createElement("div");
+        col.className = "seat";
+        col.innerHTML = '<b></b><div class="meta">' +
+                        '<span class="lives"></span></div>';
+        elBoard.appendChild(col);
+      }
+      elBoard.className = "scoreboard" + (players.length > 1 ? " duo" : "");
     }
-    for (var j = 0; j < total; j++) {
-      elLives.children[j].className = j < lives ? "" : "spent";
+
+    for (var q = 0; q < players.length; q++) {
+      var p = players[q], col = elBoard.children[q];
+      var b = col.querySelector("b"), pips = col.querySelector(".lives");
+      b.textContent = String(p.score);
+      b.style.color = SEATS[q].css;
+      if (pips.childElementCount !== total) {
+        pips.innerHTML = "";
+        for (var k = 0; k < total; k++) pips.appendChild(document.createElement("i"));
+      }
+      for (var j = 0; j < total; j++) pips.children[j].className = j < p.lives ? "" : "spent";
     }
   }
 
   function endRound() {
     over = true;
     running = false;
-    if (elFinal) elFinal.textContent = String(score);
+    if (elFinal) {
+      if (players.length > 1) {
+        var win = players[0].score === players[1].score ? null
+                : (players[0].score > players[1].score ? players[0] : players[1]);
+        if (versus) {
+          // In versus the last one standing takes it, whatever the score.
+          var standing = players.filter(function (p) { return !p.out; });
+          if (standing.length === 1) win = standing[0];
+        }
+        elFinal.innerHTML = players.map(function (p, i) {
+          return '<span style="color:' + SEATS[i].css + '">' + p.score + "</span>";
+        }).join('<span class="vs">v</span>');
+        var caption = elOver.querySelector(".finalscore span");
+        if (caption) {
+          caption.textContent = win ? SEATS[win.seat].name + " knight takes it" : "honours even";
+        }
+      } else {
+        elFinal.textContent = String(players[0].score);
+      }
+    }
     if (elOver) elOver.hidden = false;
   }
 
   function syncHud() {
-    if (!elState || !player) return;
+    if (!elState || !players || !players[0]) return;
+    var p1 = players[0];
     var label, cls;
-    var t = player.tongue;
-    if (player.dying) {
-      label = player.dying === "water" ? "DROWNED" : player.dying === "car" ? "RUN DOWN" : "UNHORSED";
+    var t = p1.tongue;
+    if (p1.out) { label = "OUT"; cls = "dead"; }
+    else if (p1.dying) {
+      label = p1.dying === "water" ? "DROWNED" : p1.dying === "car" ? "RUN DOWN" : "UNHORSED";
       cls = "dead";
     } else if (t.state === "extend") { label = "EXTEND " + t.len.toFixed(1); cls = "extend"; }
     else if (t.state === "retract") { label = "RETRACT " + t.len.toFixed(1); cls = "retract"; }
-    else if (player.state === "hop") { label = "HOP"; cls = "hop"; }
+    else if (p1.state === "hop") { label = "HOP"; cls = "hop"; }
     else { label = "IDLE"; cls = "idle"; }
     if (elState.textContent !== label) elState.textContent = label;
     if (elLamp.className !== "lamp " + cls) elLamp.className = "lamp " + cls;
@@ -2592,6 +2751,31 @@
   function syncHint() {
     var el = typeof document !== "undefined" && document.getElementById("fj-edges");
     if (el) el.textContent = wrapping() ? "edges wrap" : "edges are walls";
+  }
+
+  // Player two arrives from the menu. Joining mid-round would drop a knight
+  // into a fight already in progress, so it only takes effect on the next one.
+  function joinPlayerTwo() {
+    if (partySize > 1) return;
+    partySize = 2;
+    if (elParty) {
+      elParty.classList.add("joined");
+      elParty.innerHTML = "Player two has joined &mdash; <b>IJKL</b> and <b>Right Shift</b>";
+    }
+    if (elModes) elModes.hidden = false;
+    audioStart();
+    sfx.respawn();
+    if (!running) return;
+    loadLevel(levelIndex);            // reshuffle so both start together
+    setScore();
+  }
+
+  function setMode(toVersus) {
+    versus = !!toVersus;
+    var coop = document.getElementById("fj-coop");
+    var vs = document.getElementById("fj-versus");
+    if (coop) coop.setAttribute("aria-pressed", versus ? "false" : "true");
+    if (vs) vs.setAttribute("aria-pressed", versus ? "true" : "false");
   }
 
   function fadeHint() {
@@ -2738,12 +2922,11 @@
     ctx = canvas.getContext("2d");
     elState = document.getElementById("fj-state");
     elLamp = document.getElementById("fj-lamp");
-    elKO = document.getElementById("fj-ko");
-    elScore = document.getElementById("fj-score");
-    elLives = document.getElementById("fj-lives");
+    elBoard = document.getElementById("fj-scoreboard");
     elFinal = document.getElementById("fj-final");
     elOver = document.getElementById("fj-gameover");
-    elLost = document.getElementById("fj-lost");
+    elParty = document.getElementById("fj-p2");
+    elModes = document.getElementById("fj-modes");
     elHint = document.getElementById("fj-hint");
     elLevelName = document.getElementById("fj-levelname");
     elMenu = document.getElementById("fj-levelmenu");
@@ -2775,29 +2958,60 @@
     canvas.addEventListener("pointercancel", release);
     canvas.addEventListener("contextmenu", function (e) { e.preventDefault(); });
 
+    // Two control sets. Shift has to be read off e.code, because e.key is
+    // plain "Shift" for both of them and the two seats need telling apart.
+    function seatOfShootKey(e) {
+      if (e.code === "ShiftRight") return 1;
+      if (e.code === "ShiftLeft" || e.code === "Space" || e.key === " ") return 0;
+      return -1;
+    }
+
     window.addEventListener("keydown", function (e) {
       if (e.repeat) return;
       audioStart();
-      var key = e.key === " " ? " " : e.key;
-      input.keys[key] = true;
-      if (key === " ") {
-        input.holding = true;
-        input.consumed = false;
-        input.downAt = now();
+      var key = (e.key || "").length === 1 ? e.key.toLowerCase() : e.key;
+      var shootSeat = seatOfShootKey(e);
+
+      if (shootSeat === 1 && (!running || partySize < 2)) {
+        joinPlayerTwo();                       // right shift is the invitation
+        e.preventDefault();
+        return;
+      }
+      if (shootSeat >= 0 && shootSeat < partySize) {
+        var si = inputs[shootSeat];
+        si.keys[key] = true;
+        si.holding = true;
+        si.consumed = false;
+        si.downAt = now();
         fadeHint();
         e.preventDefault();
-      } else if (KEY_VEC[key]) {
-        if (!input.keys[" "]) {
-          requestHop({ x: KEY_VEC[key][0], y: KEY_VEC[key][1] });
+        return;
+      }
+
+      for (var q = 0; q < partySize; q++) {
+        var v = KEY_VEC[q][key];
+        if (!v) continue;
+        inputs[q].keys[key] = true;
+        if (!inputs[q].holding) {
+          requestHop({ x: v[0], y: v[1] }, q);
           fadeHint();
         }
         e.preventDefault();
+        return;
       }
     });
+
     window.addEventListener("keyup", function (e) {
-      var key = e.key === " " ? " " : e.key;
-      input.keys[key] = false;
-      if (key === " ") pressUp();
+      var key = (e.key || "").length === 1 ? e.key.toLowerCase() : e.key;
+      var shootSeat = seatOfShootKey(e);
+      if (shootSeat >= 0 && shootSeat < partySize) {
+        inputs[shootSeat].keys[key] = false;
+        inputs[shootSeat].holding = false;
+        inputs[shootSeat].steer.x = 0;
+        inputs[shootSeat].steer.y = 0;
+        return;
+      }
+      for (var q = 0; q < partySize; q++) inputs[q].keys[key] = false;
     });
 
     var drawer = document.getElementById("fj-drawer");
@@ -2831,6 +3045,9 @@
       elOver.hidden = true;
       elMenu.hidden = false;
     });
+
+    document.getElementById("fj-coop").addEventListener("click", function () { setMode(false); });
+    document.getElementById("fj-versus").addEventListener("click", function () { setMode(true); });
 
     var soundBtn = document.getElementById("fj-sound");
     function syncSound() {
@@ -2876,14 +3093,19 @@
       update: update, loadLevel: loadLevel, input: input,
       state: function () {
         return {
-          player: player, enemies: enemies, hazards: hazards, lanes: lanes,
+          player: players[0], players: players, enemies: enemies,
+          hazards: hazards, lanes: lanes,
           debris: debris, helmets: helmets, level: level,
-          ko: ko, lost: lost, lives: lives, score: score, over: over,
+          ko: ko, lost: players[0].lost, lives: players[0].lives,
+          score: players[0].score, over: over,
           pops: pops, sparks: sparks
         };
       },
       startTongue: startTongue, requestHop: requestHop, snapDir: snapDir,
       startHopFor: startHop, cellOccupied: cellOccupied,
+      join: function () { partySize = 2; },
+      setVersus: function (v) { versus = !!v; },
+      isPlayer: isPlayer,
       unproj: unproj, proj: proj, wrapCoord: wrapCoord, wrapDelta: wrapDelta,
       supportUnder: supportUnder, laneAt: laneAt,
       run: function (on) { running = on; }
