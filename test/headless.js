@@ -402,7 +402,9 @@ function freshLevel(i = 0) {
     FJ.input.holding = true;
     FJ.input.consumed = false;
     FJ.input.steer.x = sx; FJ.input.steer.y = sy;
-    step(0.6);
+    // Sample near full stretch. Any later and auto-retract has already begun
+    // pulling the curve straight again.
+    step(0.4);
     const t = FJ.state().player.tongue;
     return { tip: { x: t.tip.x, y: t.tip.y }, nodes: t.nodes.map(n => ({ x: n.x, y: n.y })) };
   }
@@ -429,7 +431,7 @@ function freshLevel(i = 0) {
   step(1);
 }
 
-// --- 9b. the tongue can never get behind its own frog -------------------
+// --- 9b. the tongue reaches only as far behind as it is allowed ---------
 {
   // Drive the steering all the way round the compass, holding each direction
   // long enough for the tip to settle there, and watch every sampled point of
@@ -441,8 +443,8 @@ function freshLevel(i = 0) {
   FJ.CFG.wrapEdges = 0;
 
   const facings = [{ x: 0, y: 1 }, { x: 0, y: -1 }, { x: 1, y: 0 }, { x: -1, y: 0 }];
-  let worstBehind = 0, worstTipAngle = 0, widest = 0;
-  const lim = (FJ.CFG.tongueArc * Math.PI) / 180;
+  const behind = FJ.CFG.tongueBehind;
+  let worstBehind = 0, reachedBack = 0, widest = 0;
 
   for (const face of facings) {
     s.player.x = 0; s.player.y = 0;
@@ -466,27 +468,204 @@ function freshLevel(i = 0) {
           worstBehind = Math.min(worstBehind, fwd);
         }
         const vx = t.tip.x - p.x, vy = t.tip.y - p.y;
-        if (Math.hypot(vx, vy) > 0.2) {
-          const rel = Math.atan2(vy, vx) - Math.atan2(p.face.y, p.face.x);
-          const off = Math.abs(Math.atan2(Math.sin(rel), Math.cos(rel)));
-          worstTipAngle = Math.max(worstTipAngle, off);
-          widest = Math.max(widest, off);
-        }
+        const fwd = vx * p.face.x + vy * p.face.y;
+        reachedBack = Math.min(reachedBack, fwd);
+        const side = Math.abs(vx * -p.face.y + vy * p.face.x);
+        widest = Math.max(widest, side);
       }
     }
     FJ.input.holding = false;
     step(1.2);
   }
 
-  check(worstBehind > -1e-9,
-    `no part of the tongue ever gets behind the frog (worst ${worstBehind.toFixed(6)} cells)`);
-  check(worstTipAngle <= lim + 1e-6,
-    `the tip stays inside the ${FJ.CFG.tongueArc}° arc (reached ${(worstTipAngle * 180 / Math.PI).toFixed(1)}°)`);
-  // ...and the constraint must not have quietly strangled the sweep. The tip
-  // settles a little short of the full arc because the leash pulls toward the
-  // mouth, which sits ahead of the frog's centre — so allow for that.
-  check(widest > lim * 0.85,
-    `a full sideways sweep is still available (reached ${(widest * 180 / Math.PI).toFixed(1)}°)`);
+  check(worstBehind >= -behind - 1e-9,
+    `nothing reaches past the ${behind}-cell limit behind the frog ` +
+    `(worst ${worstBehind.toFixed(4)})`);
+  check(widest > 1.5, `and it still sweeps wide sideways (${widest.toFixed(2)} cells)`);
+}
+
+// --- 9c. and the limit is a real line, not a trivially-true one ---------
+{
+  // At the default steer rate the tip cannot physically get behind the frog
+  // at all: the heading resets to the facing on every shot and auto-retract
+  // collapses the leash before a half-turn completes. So drive the steering
+  // hard enough to actually reach the line, and check the clamp holds it.
+  function deepestBehind(rate, behind) {
+    freshLevel(0);
+    clearHazards();
+    const s = FJ.state();
+    s.lanes.forEach(l => { l.type = "grass"; });
+    const wasRate = FJ.CFG.steerRate, wasBehind = FJ.CFG.tongueBehind;
+    FJ.CFG.steerRate = rate;
+    FJ.CFG.tongueBehind = behind;
+
+    s.player.x = 0; s.player.y = 0; s.player.face = { x: 0, y: 1 };
+    s.player.state = "idle"; s.player.dying = null; s.player.safeT = 1e6;
+    FJ.input.downAt = performanceNow();
+    FJ.input.holding = true;
+    FJ.input.consumed = false;
+    FJ.input.steer.x = 0; FJ.input.steer.y = -1;      // straight back
+
+    let worst = 0;
+    for (let i = 0; i < 600; i++) {
+      step(DT);
+      const p = FJ.state().player, t = p.tongue;
+      if (t.state === "idle") { FJ.input.consumed = false; continue; }
+      for (const n of t.nodes) {
+        worst = Math.min(worst, (n.x - p.x) * p.face.x + (n.y - p.y) * p.face.y);
+      }
+    }
+    FJ.input.holding = false;
+    step(1.2);
+    FJ.CFG.steerRate = wasRate;
+    FJ.CFG.tongueBehind = wasBehind;
+    return worst;
+  }
+
+  const at1 = deepestBehind(12, 1);
+  check(Math.abs(at1 + 1) < 1e-6,
+    `with reach set to 1 the tongue stops dead on the line (${at1.toFixed(6)})`);
+
+  const at0 = deepestBehind(12, 0);
+  check(at0 > -1e-9, `with reach set to 0 it never gets behind at all (${at0.toFixed(6)})`);
+
+  const at2 = deepestBehind(12, 2);
+  check(at2 < at1 - 0.2,
+    `and raising the setting really does buy more room (${at2.toFixed(2)} vs ${at1.toFixed(2)})`);
+
+  const atDefault = deepestBehind(FJ.CFG.steerRate, 1);
+  check(atDefault > -0.05,
+    `NOTE: at the default steer rate of ${FJ.CFG.steerRate} the tip barely gets ` +
+    `behind at all (${atDefault.toFixed(3)}) — the setting is a cap, not a promise`);
+}
+
+// --- 9d. a tongue at full stretch comes back on its own -----------------
+{
+  freshLevel(0);
+  clearHazards();
+  const s = FJ.state();
+  s.player.x = 0; s.player.y = -R() + 1; s.player.dying = null;
+  s.player.face = { x: 0, y: 1 };
+  FJ.input.downAt = performanceNow();
+  FJ.input.holding = true;        // and never let go
+  FJ.input.consumed = false;
+  FJ.input.steer.x = 0; FJ.input.steer.y = 0;
+
+  let sawFull = false;
+  for (let i = 0; i < 240; i++) {
+    step(DT);
+    const t = FJ.state().player.tongue;
+    if (t.len >= FJ.CFG.tongueMax - 1e-6) sawFull = true;
+    if (sawFull && t.state === "retract") break;
+  }
+  check(sawFull, "the tongue reaches full stretch while held");
+  check(FJ.state().player.tongue.state === "retract",
+    "and turns for home by itself without the button being released");
+
+  // Steering must still work on the way back.
+  const before = { x: FJ.state().player.tongue.tip.x, y: FJ.state().player.tongue.tip.y };
+  FJ.input.steer.x = -1; FJ.input.steer.y = 0;
+  step(0.12);
+  const after = FJ.state().player.tongue.tip;
+  check(FJ.state().player.tongue.state === "retract" &&
+        Math.abs(after.x - before.x) > 0.05,
+    "and you can still steer it while it reels in");
+  FJ.input.holding = false;
+  step(1.2);
+}
+
+// --- 9e. knights fall the way they were hit -----------------------------
+{
+  // Strike a rival from due west twenty times and check every knight lands
+  // eastward-ish — the direction of the blow, plus scatter, never against it.
+  let samples = [], spread = 0;
+  for (let n = 0; n < 20; n++) {
+    FJ.loadLevel(0);
+    clearHazards();
+    const s = FJ.state();
+    const foe = loneRival(2, -R() + 1);
+    foe.hopTimer = 1e6; foe.restTimer = 1e6;
+    s.player.x = 0; s.player.y = -R() + 1;
+    s.player.face = { x: 1, y: 0 };          // pointing east, at the rival
+    s.player.dying = null; s.player.safeT = 1e6;
+    s.debris.length = 0;
+
+    FJ.input.downAt = performanceNow();
+    FJ.input.holding = true;
+    FJ.input.consumed = false;
+    FJ.input.steer.x = 0; FJ.input.steer.y = 0;
+    step(0.7);
+    FJ.input.holding = false;
+
+    const d = FJ.state().debris[0];
+    if (d) {
+      const ang = Math.atan2(d.vy, d.vx);
+      samples.push(ang);
+      spread = Math.max(spread, Math.abs(ang));
+    }
+    step(0.6);
+  }
+  check(samples.length >= 18, `the strike lands nearly every time (${samples.length}/20)`);
+  check(samples.every(a => Math.abs(a) < Math.PI / 2),
+    "every unhorsed knight is thrown away from the blow, never back into it");
+  check(spread > 0.02, `and the direction varies rather than being identical (${spread.toFixed(3)} rad)`);
+}
+
+// --- 9f. helmets drop, and are worth collecting -------------------------
+{
+  FJ.loadLevel(0);
+  clearHazards();
+  const s = FJ.state();
+  // Dry ground throughout: a helm thrown from here can otherwise reach the
+  // stream and sink, which is correct behaviour but makes this a coin flip.
+  // Sinking gets its own test below.
+  s.lanes.forEach(l => { l.type = "grass"; });
+  const foe = loneRival(0, -R() + 3);
+  foe.hopTimer = 1e6; foe.restTimer = 1e6;
+  s.player.x = 0; s.player.y = -R() + 1;
+  s.player.face = { x: 0, y: 1 };
+  s.player.dying = null; s.player.safeT = 1e6;
+
+  const scoreBefore = FJ.state().score;
+  FJ.input.downAt = performanceNow();
+  FJ.input.holding = true;
+  FJ.input.consumed = false;
+  FJ.input.steer.x = 0; FJ.input.steer.y = 0;
+  step(0.7);
+  FJ.input.holding = false;
+
+  check(FJ.state().score === scoreBefore + FJ.CFG.pointsUnhorse,
+    `unhorsing scores ${FJ.CFG.pointsUnhorse}`);
+  check(FJ.state().helmets.length === 1, "the knight's helm comes off and stays on the field");
+
+  step(1.2);                       // let it land
+  const helm = FJ.state().helmets[0];
+  check(helm && helm.landed, "the helm settles on the ground");
+
+  // Walk the player onto it.
+  const mid = FJ.state().score;
+  FJ.state().player.x = helm.x;
+  FJ.state().player.y = helm.y;
+  step(1 / 60);
+  check(FJ.state().helmets.length === 0, "hopping onto a helm collects it");
+  check(FJ.state().score === mid + FJ.CFG.pointsHelmet,
+    `and collecting scores ${FJ.CFG.pointsHelmet}`);
+}
+
+// --- 9g. a helm dropped in the stream is lost ---------------------------
+{
+  FJ.loadLevel(0);
+  clearHazards();
+  const waterRow = FJ.state().lanes.findIndex(l => l.type === "water") - R();
+  const s = FJ.state();
+  benchRivals();
+  s.player.x = 0; s.player.y = -R() + 1; s.player.dying = null;
+  s.helmets.push({
+    x: 3, y: waterRow, z: 0, vx: 0, vy: 0, vz: 0,
+    rot: 0, spin: 0, armor: "#b0353a", trim: "#e5cfa0", life: 0, landed: true
+  });
+  step(1 / 60);
+  check(FJ.state().helmets.length === 0, "a helm that lands in open water sinks");
 }
 
 // --- 10. movement is locked while extending, freed on release -----------

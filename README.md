@@ -50,7 +50,10 @@ carry their own traffic. Adding one is a few lines in `LEVELS`.
 - A hop is a discrete, committed move — a whole number of cells over a fixed
   time, in one of four directions, Frogger-style rather than analogue walking.
 - **Holding** shoots the tongue; **releasing** reels it in. A quick tap still
-  produces a full jab (`minExtend`).
+  produces a full jab (`minExtend`). At full stretch it turns for home on its
+  own — holding longer buys nothing — and **it changes colour on the way back**,
+  from red to gold, because that is when you are free to move again. You keep
+  steering it the whole way home either way.
 - The frog is pinned only while the tongue is going **out**. That is the
   commitment, and it is the risk that makes the joust a joust. Letting go ends
   it: you can hop away immediately and the tongue trails from the mouth as it
@@ -62,6 +65,23 @@ carry their own traffic. Adding one is a few lines in `LEVELS`.
   it, and **a log that reaches the end of the level goes under**, taking you
   with it unless something else is beneath you by then.
 - Rival knights carry exactly the same tongue you do, and will use it.
+- A struck knight is thrown **the way the blow was going**, with some scatter,
+  so a sweep sends them sideways rather than back along the tongue.
+- Their **helm comes off** and stays on the field. Ride over it to claim it.
+  Helms obey the same world rules as everyone else: they ride logs, and they
+  sink in open water, so a knight unhorsed over the stream may cost you the
+  spoils. They lie there for `helmetLife` seconds, blinking out at the end.
+
+## Scoring
+
+| | |
+| --- | --- |
+| Unhorsing a knight | `pointsUnhorse` (100) |
+| Collecting a fallen helm | `pointsHelmet` (150) |
+
+The helm is worth more than the kill on purpose: the kill is the thing you were
+already doing, and the helm is the thing that makes you leave safe ground to go
+and get it.
 
 ## How the tongue works
 
@@ -85,16 +105,22 @@ Instead:
    so the whole curve stays inside the leash — otherwise a bowed tongue quietly
    out-reaches its own maximum. That curve is the hit volume and the render
    path both, so what you see is exactly what hits.
-4. **It cannot get behind its own frog.** `tongueArc` (90° by default, and
-   never more) defines a cone opening along the facing, and *three* separate
-   things get folded into it — the tip's heading, the tip itself, and the
-   curve's outgoing control point. Each one alone is insufficient: clamping
-   only the heading lets a tip already out to one side keep drifting round on
-   its leash, and clamping only the tip still lets the control point bow the
-   visible curve back past the frog while both endpoints sit in front of it.
-   Since a cubic stays inside the hull of its control points, folding all three
-   in puts the whole ribbon in front for good. Steering hard round the back
-   pins the tongue out to the side instead of curling behind.
+4. **`tongueBehind` caps how far back it may reach** (1 cell by default; 0
+   pins it to a strict forward half-plane). The bound is a line that many cells
+   behind the frog, square to its facing, and *both* the tip and the curve's
+   outgoing control point get pushed in front of it. Clamping the tip alone is
+   not enough — the control point can still bow the visible ribbon back past
+   the line while both endpoints sit in front of it. Since a cubic stays inside
+   the hull of its control points, holding both puts the whole ribbon inside
+   the limit.
+
+   **The cap is a ceiling, not a promise.** The heading resets to the facing on
+   every shot, and auto-retract collapses the leash before a half-turn
+   completes, so at the default `steerRate` of 6 the tip cannot physically get
+   behind the frog *at all* — raising it to about 10 is what makes the
+   allowance reachable. The test suite asserts both halves of this: that the
+   clamp stops dead on the line when the steering is fast enough to reach it,
+   and that at the default rate it never gets there.
 
 Every mount owns one, player and rival alike. The only difference is where the
 steering comes from: your finger, or the direction of you.
@@ -189,7 +215,11 @@ a log does not, that
 riding a log to the end drowns you unless a second log overlaps, that carts
 kill, that traffic stays bounded over a minute, that no part of the tongue
 curve out-reaches `tongueMax`, that steering the full 360° from all four
-facings never puts any part of the tongue behind the frog *and* still leaves a
-full sideways sweep available, that movement frees up the instant you release,
+facings never breaches `tongueBehind` while still leaving a full sideways sweep
+available, that the tongue turns for home by itself at full stretch and is
+still steerable afterwards, that a struck knight is always thrown away from the
+blow and never back into it, that a helm drops and can be collected for points
+and sinks if it lands in open water, that movement frees up the instant you
+release,
 that a rival closes and eventually unhorses you, and that every level loads and
 starts you somewhere dry.

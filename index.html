@@ -108,7 +108,7 @@
   .lamp.idle    { background: #4e6b5c; }
   .lamp.hop     { background: var(--gold); }
   .lamp.extend  { background: var(--tongue); }
-  .lamp.retract { background: #8c4a63; }
+  .lamp.retract { background: #e0a83a; }
   .lamp.dead    { background: #c04040; }
 
   .tally {
@@ -119,11 +119,18 @@
     pointer-events: auto;
   }
 
-  .stats { display: flex; gap: 16px; align-items: flex-start; }
+  .tallyline {
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    margin-top: -2px;
+  }
+  .tallyline b { color: var(--parchment); font-weight: 600; }
 
   .stat b {
     font-family: var(--font-display);
-    font-size: 28px;
+    font-size: 30px;
     font-weight: 600;
     line-height: 1;
     color: var(--gold);
@@ -365,9 +372,9 @@
     </div>
 
     <div class="tally">
-      <div class="stats">
-        <div class="stat"><b id="fj-ko">0</b><span>unhorsed</span></div>
-        <div class="stat lost"><b id="fj-lost">0</b><span>lost</span></div>
+      <div class="stat"><b id="fj-score">0</b><span>points</span></div>
+      <div class="tallyline">
+        <b id="fj-ko">0</b> unhorsed &nbsp;·&nbsp; <b id="fj-lost">0</b> lost
       </div>
       <div class="btn-row">
         <button id="fj-menu" type="button">Levels</button>
@@ -442,12 +449,19 @@
     retractSpeed: 11.0,   // cells/sec the leash shortens once released
     sweepSpeed: 5.0,      // cells/sec the tip still travels while reeling in
     steerRate: 6.0,       // radians/sec the tip can swing its heading
-    tongueArc: 90,        // degrees either side of the facing the tongue may
-                          // reach. 90 is the widest allowed: a tongue must
-                          // never end up behind its own frog's head.
+    tongueBehind: 1,      // cells the tongue may reach BEHIND its own frog.
+                          // 0 pins it to a strict forward half-plane.
     curveBow: 0.45,
     minExtend: 0.14,
     hitRadius: 0.5,       // cells — tongue vs rider
+
+    // --- scoring and spoils
+    pointsUnhorse: 100,   // for putting a knight in the dirt
+    pointsHelmet: 150,    // for going and fetching what fell off
+    knockSpeed: 4.5,      // cells/sec a struck knight is thrown
+    knockSpread: 0.45,    // radians of scatter on the fall direction
+    helmetLife: 14,       // sec a dropped helm lies there before it is lost
+    helmetPickup: 0.62,   // cells you must be within to claim one
 
     // --- rival knights
     enemyCount: 3,
@@ -472,7 +486,7 @@
     { key: "extendSpeed",  label: "Extend speed",  min: 3,    max: 22,  step: 0.5,  unit: " c/s" },
     { key: "retractSpeed", label: "Retract speed", min: 3,    max: 28,  step: 0.5,  unit: " c/s" },
     { key: "steerRate",    label: "Steer rate",    min: 0,    max: 16,  step: 0.25, unit: " rad/s" },
-    { key: "tongueArc",    label: "Tongue arc",    min: 20,   max: 90,  step: 5,    unit: "°" },
+    { key: "tongueBehind", label: "Reach behind",  min: 0,    max: 3,   step: 0.25, unit: " cells" },
     { key: "curveBow",     label: "Curve bow",     min: 0.05, max: 0.9, step: 0.05, unit: "" },
     { key: "enemyCount",   label: "Rivals",        min: 0,    max: 6,   step: 1,    unit: "" },
     { key: "enemyHopEvery",label: "Rival pace",    min: 0.25, max: 2,   step: 0.05, unit: " s" },
@@ -639,7 +653,12 @@
       blip("sawtooth", 160, 50, 0.24, 0.12);
     },
     horn: function () { blip("sawtooth", 320, 300, 0.26, 0.05); blip("sawtooth", 404, 380, 0.26, 0.04); },
-    respawn: function () { blip("sine", 380, 760, 0.16, 0.1); blip("sine", 570, 1140, 0.2, 0.05, 0.07); }
+    respawn: function () { blip("sine", 380, 760, 0.16, 0.1); blip("sine", 570, 1140, 0.2, 0.05, 0.07); },
+    pickup: function () {                                  // coin-bright, two rising notes
+      blip("square", 880, 880, 0.07, 0.06);
+      blip("square", 1320, 1320, 0.16, 0.05, 0.06);
+      blip("sine", 1760, 1760, 0.14, 0.03, 0.06);
+    }
   };
 
   // =====================================================================
@@ -735,7 +754,7 @@
   // STATE
   // =====================================================================
 
-  var level, lanes, hazards, player, enemies, debris, ripples, ko, lost, running;
+  var level, lanes, hazards, player, enemies, debris, helmets, ripples, ko, lost, score, running;
 
   var ARMOURS = [
     { armor: "#b0353a", trim: "#e5cfa0" },
@@ -792,9 +811,11 @@
     }
     hazards = [];
     debris = [];
+    helmets = [];
     ripples = [];
     ko = 0;
     lost = 0;
+    score = 0;
 
     // Let the traffic build up before anyone sees the level, or it opens on
     // an empty stream and you stand about waiting for the first log.
@@ -973,7 +994,11 @@
       // visible stub behind.
       var ramp = clamp(t.t / 0.09, 0, 1);
       t.len = Math.min(CFG.tongueMax, t.len + CFG.extendSpeed * ramp * dt);
-      if (!held && t.t >= CFG.minExtend) {
+      // A tongue at full stretch comes back on its own — holding the button
+      // longer buys nothing, so there is no reason to let it sit out there.
+      // You keep steering it the whole way home either way.
+      var full = t.len >= CFG.tongueMax - 1e-9;
+      if (full || (!held && t.t >= CFG.minExtend)) {
         t.state = "retract";
         if (m === player) sfx.tongueBack();
       }
@@ -1000,14 +1025,8 @@
       while (delta > Math.PI) delta -= Math.PI * 2;
       while (delta < -Math.PI) delta += Math.PI * 2;
       var turn = clamp(delta, -CFG.steerRate * dt, CFG.steerRate * dt);
-      // Hold the heading inside the forward cone, so steering hard round the
-      // back simply pins the tip out to the side rather than dragging it
-      // behind the frog.
-      var fa = Math.atan2(m.face.y, m.face.x);
-      var lim = arcLimit();
-      var aim = fa + clamp(angleDiff(cur + turn, fa), -lim, lim);
-      t.dir.x = Math.cos(aim);
-      t.dir.y = Math.sin(aim);
+      t.dir.x = Math.cos(cur + turn);
+      t.dir.y = Math.sin(cur + turn);
     }
 
     t.prev.x = t.tip.x;
@@ -1019,10 +1038,10 @@
     t.tip.x += t.dir.x * speed * dt;
     t.tip.y += t.dir.y * speed * dt;
 
-    // Fold the tip back into the cone before the leash runs, not after: the
-    // leash pulls toward the mouth, which is inside the cone, so it can only
-    // ever keep it there.
-    var held = coneClamp(m, t.tip.x, t.tip.y);
+    // Hold the tip in front of the line before the leash runs, not after: the
+    // leash pulls toward the mouth, which is well in front of it, so it can
+    // only ever keep the tip there.
+    var held = behindClamp(m, t.tip.x, t.tip.y);
     t.tip.x = held.x; t.tip.y = held.y;
 
     // The leash: the tip can never be further from the mouth than the length
@@ -1058,11 +1077,7 @@
     var p1x = o.x + m.face.x * bowIn, p1y = o.y + m.face.y * bowIn;
     var p2x = tip.x - t.dir.x * bowOut, p2y = tip.y - t.dir.y * bowOut;
 
-    // The outgoing control point is the one that can still bow the visible
-    // curve behind the frog even when both ends are in front of it. A cubic
-    // stays inside the hull of its control points, so folding this one into
-    // the cone puts the whole ribbon in front for good.
-    var p2 = coneClamp(m, p2x, p2y);
+    var p2 = behindClamp(m, p2x, p2y);
     p2x = p2.x; p2y = p2.y;
 
     var nodes = t.nodes, N = nodes.length;
@@ -1074,37 +1089,23 @@
     }
   }
 
-  // --- keeping the tongue in front ------------------------------------
+  // --- how far behind itself a tongue may reach -----------------------
   //
-  // A tongue that can swing all the way round ends up looping behind its own
-  // frog's head, which looks like a bug and reads like one. Everything the
-  // tongue is made of gets folded into a cone opening along the facing: the
-  // tip's heading, the tip itself, and the curve's outgoing control point.
-  // Clamping only the heading is not enough — a tip already out to one side
-  // keeps drifting round on its leash — and clamping only the tip is not
-  // enough either, because the control point can bow the visible curve back
-  // past the frog even when both endpoints are in front of it.
+  // Left unbounded, a tongue swings all the way round and loops behind its own
+  // frog, which reads as a bug. The bound is a line `tongueBehind` cells back
+  // from the frog, square to its facing, and BOTH the tip and the curve's
+  // outgoing control point get pushed in front of it. Clamping the tip alone
+  // is not enough: the control point can still bow the visible ribbon back
+  // past the line while both endpoints sit in front of it. A cubic stays
+  // inside the hull of its control points, so with both of them held the whole
+  // ribbon respects the limit.
 
-  function arcLimit() { return CFG.tongueArc * Math.PI / 180; }
-
-  function angleDiff(a, b) {
-    var d = a - b;
-    while (d > Math.PI) d -= Math.PI * 2;
-    while (d < -Math.PI) d += Math.PI * 2;
-    return d;
-  }
-
-  // Fold a point into the cone around m's facing, keeping its distance from m.
-  function coneClamp(m, px, py) {
-    var vx = px - m.x, vy = py - m.y;
-    var d = Math.hypot(vx, vy);
-    if (d < 1e-6) return { x: px, y: py };
-    var fa = Math.atan2(m.face.y, m.face.x);
-    var rel = angleDiff(Math.atan2(vy, vx), fa);
-    var lim = arcLimit();
-    if (Math.abs(rel) <= lim) return { x: px, y: py };
-    var a = fa + (rel < 0 ? -lim : lim);
-    return { x: m.x + Math.cos(a) * d, y: m.y + Math.sin(a) * d };
+  function behindClamp(m, px, py) {
+    var limit = -CFG.tongueBehind;
+    var fwd = (px - m.x) * m.face.x + (py - m.y) * m.face.y;
+    if (fwd >= limit) return { x: px, y: py };
+    var push = limit - fwd;
+    return { x: px + m.face.x * push, y: py + m.face.y * push };
   }
 
   function tipVelocity(m, dt) {
@@ -1126,34 +1127,76 @@
       if (target === player && player.safeT > 0) continue;
       for (var i = 5; i < t.nodes.length; i++) {
         if (wrapDist(t.nodes[i], target) < CFG.hitRadius) {
-          if (target === player) killPlayer("tongue");
-          else unhorse(target, tipVelocity(m, dt));
+          var dir = hitDirection(m, target, dt);
+          if (target === player) killPlayer("tongue", dir);
+          else unhorse(target, dir);
           break;
         }
       }
     }
   }
 
-  function unhorse(mount, vel) {
+  // Which way a struck knight goes. The tongue's own travel is the honest
+  // answer when it is moving — a sweep should throw them sideways, not back
+  // along the tongue — and the line from attacker to target covers the case
+  // where the tip is barely moving because it is pinned at full stretch.
+  function hitDirection(attacker, target, dt) {
+    var v = tipVelocity(attacker, dt);
+    var s = Math.hypot(v.x, v.y);
+    var dx, dy;
+    if (s > 0.5) {
+      dx = v.x / s; dy = v.y / s;
+    } else {
+      dx = wrapDelta(target.x - attacker.x);
+      dy = wrapDelta(target.y - attacker.y);
+      var d = Math.hypot(dx, dy) || 1;
+      dx /= d; dy /= d;
+    }
+    var a = Math.atan2(dy, dx) + (Math.random() * 2 - 1) * CFG.knockSpread;
+    return { x: Math.cos(a), y: Math.sin(a) };
+  }
+
+  function unhorse(mount, dir) {
     mount.rider = false;
     mount.dead = true;
     mount.respawnIn = CFG.respawnDelay;
     ko++;
-    throwRider(mount, vel, 250);
+    addScore(CFG.pointsUnhorse);
+    throwRider(mount, dir, 250);
+    dropHelmet(mount, dir);
     sfx.hit();
-    setScore();
   }
 
-  function throwRider(mount, vel, up) {
-    var speed = Math.hypot(vel.x, vel.y) || 1;
-    var push = clamp(speed * 0.35, 2.2, 6.5);
+  function throwRider(mount, dir, up) {
+    var speed = CFG.knockSpeed * (0.75 + Math.random() * 0.5);
     debris.push({
       x: mount.x, y: mount.y, z: 26,
-      vx: (vel.x / speed) * push, vy: (vel.y / speed) * push, vz: up,
+      vx: dir.x * speed, vy: dir.y * speed, vz: up * (0.85 + Math.random() * 0.3),
       rot: 0, spin: (Math.random() < 0.5 ? -1 : 1) * (7 + Math.random() * 5),
       armor: mount.armor, trim: mount.trim,
       life: 0, grounded: false
     });
+  }
+
+  // The helm comes off and stays on the field. Scattered wider and thrown
+  // shorter than its owner, so it lands somewhere of its own.
+  function dropHelmet(mount, dir) {
+    var a = Math.atan2(dir.y, dir.x) + (Math.random() * 2 - 1) * 0.9;
+    var speed = CFG.knockSpeed * (0.3 + Math.random() * 0.45);
+    helmets.push({
+      x: mount.x, y: mount.y, z: 30,
+      vx: Math.cos(a) * speed, vy: Math.sin(a) * speed,
+      vz: 190 + Math.random() * 90,
+      rot: Math.random() * Math.PI * 2,
+      spin: (Math.random() < 0.5 ? -1 : 1) * (5 + Math.random() * 6),
+      armor: mount.armor, trim: mount.trim,
+      life: 0, landed: false
+    });
+  }
+
+  function addScore(n) {
+    score += n;
+    setScore();
   }
 
   // =====================================================================
@@ -1317,10 +1360,11 @@
 
     var lane = laneAt(player.y);
     if (lane.type === "water" && !supportUnder(player)) { killPlayer("water"); return; }
-    if (carHitting(player)) { killPlayer("car"); return; }
+    var car = carHitting(player);
+    if (car) { killPlayer("car", { x: car.vx > 0 ? 1 : -1, y: 0 }); return; }
   }
 
-  function killPlayer(cause) {
+  function killPlayer(cause, dir) {
     if (player.dying) return;
     player.dying = cause;
     player.dyingT = 1.15;
@@ -1334,10 +1378,10 @@
       ripples.push({ x: player.x, y: player.y, t: 0 });
     } else if (cause === "car") {
       sfx.squash();
-      throwRider(player, { x: 0, y: -1 }, 180);
+      throwRider(player, dir || { x: 0, y: -1 }, 180);
     } else {
       sfx.hit();
-      throwRider(player, { x: 0, y: 1 }, 240);
+      throwRider(player, dir || { x: 0, y: 1 }, 240);
     }
     setScore();
   }
@@ -1460,6 +1504,52 @@
     return false;
   }
 
+  // A dropped helm plays by the same rules as everything else on the field: it
+  // rides a log if it lands on one, and it sinks if it lands in open water.
+  function updateHelmets(dt) {
+    var R = bound();
+    for (var i = helmets.length - 1; i >= 0; i--) {
+      var h = helmets[i];
+      h.life += dt;
+
+      if (!h.landed) {
+        h.x += h.vx * dt;
+        h.y += h.vy * dt;
+        h.vz -= 900 * dt;
+        h.z += h.vz * dt;
+        h.rot += h.spin * dt;
+        if (h.z <= 0) {
+          h.z = 0;
+          h.landed = true;
+          h.y = Math.round(h.y);       // settle into a row so lanes apply
+          h.spin = 0;
+        }
+      } else {
+        var log = supportUnder(h);
+        if (log) h.x += log.vx * dt;
+      }
+
+      if (h.landed) {
+        var lost = Math.abs(h.x) > R + 0.5 ||
+                   (laneAt(h.y).type === "water" && !supportUnder(h));
+        if (lost) {
+          ripples.push({ x: h.x, y: h.y, t: 0 });
+          sfx.splash();
+          helmets.splice(i, 1);
+          continue;
+        }
+      }
+
+      if (h.life > CFG.helmetLife) { helmets.splice(i, 1); continue; }
+
+      if (!player.dying && wrapDist(player, h) < CFG.helmetPickup) {
+        addScore(CFG.pointsHelmet);
+        sfx.pickup();
+        helmets.splice(i, 1);
+      }
+    }
+  }
+
   function updateDebris(dt) {
     for (var i = debris.length - 1; i >= 0; i--) {
       var d = debris[i];
@@ -1520,6 +1610,7 @@
     }
 
     updateEnemies(dt);
+    updateHelmets(dt);
     updateDebris(dt);
   }
 
@@ -1557,6 +1648,7 @@
     drawArena();
     drawRipples();
     for (var h = 0; h < hazards.length; h++) if (hazards[h].kind === "log") drawLog(hazards[h]);
+    for (var m = 0; m < helmets.length; m++) drawHelmet(helmets[m]);
 
     // Rows run across the screen, so depth is just the row: draw back to front.
     var order = [];
@@ -1717,6 +1809,42 @@
     ctx.fill();
     ctx.restore();
     ctx.globalAlpha = 1;
+  }
+
+  function drawHelmet(h) {
+    // Blink out its last few seconds, so a helm you are running for tells you
+    // it is about to be gone.
+    var left = CFG.helmetLife - h.life;
+    if (left < 3 && Math.sin(clockT * 14) < -0.2) return;
+
+    drawShadow(h.x, h.y, h.z, 7);
+    var p = proj(h.x, h.y, h.z + (h.landed ? 3 + Math.sin(clockT * 3 + h.rot) * 1.5 : 0));
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(h.rot);
+
+    // a glint, so it reads as something to go and get
+    if (h.landed) {
+      ctx.fillStyle = "rgba(228,180,41," + (0.16 + 0.1 * Math.sin(clockT * 3)) + ")";
+      circle(0, 0, 13);
+    }
+
+    ctx.fillStyle = shade(h.armor, 1.45);
+    ctx.beginPath();
+    ctx.arc(0, 0, 8, Math.PI, 0);
+    ctx.quadraticCurveTo(7, 5.5, 0, 6.5);
+    ctx.quadraticCurveTo(-7, 5.5, -8, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = "rgba(9,20,18,0.5)";
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
+
+    ctx.fillStyle = h.trim;
+    ctx.fillRect(-2.4, -8.6, 4.8, 5);
+    ctx.fillStyle = "#0b1614";
+    ctx.fillRect(-6, -1.6, 12, 3.2);
+    ctx.restore();
   }
 
   function drawCar(z) {
@@ -1962,17 +2090,20 @@
     for (var r = N - 1; r >= 0; r--) ctx.lineTo(right[r].x, right[r].y);
     ctx.closePath();
 
+    // Reeling in is a different colour, because it is a different situation:
+    // the shot is spent and you are free to move again.
+    var back = t.state === "retract";
     var g = ctx.createLinearGradient(pts[0].x, pts[0].y, pts[N - 1].x, pts[N - 1].y);
-    g.addColorStop(0, "#b33a57");
-    g.addColorStop(1, "#e8607a");
+    g.addColorStop(0, back ? "#8d5a12" : "#b33a57");
+    g.addColorStop(1, back ? "#f0b64a" : "#e8607a");
     ctx.fillStyle = g;
     ctx.fill();
-    ctx.strokeStyle = "rgba(40,8,18,0.6)";
+    ctx.strokeStyle = back ? "rgba(48,28,4,0.6)" : "rgba(40,8,18,0.6)";
     ctx.lineWidth = 1.6;
     ctx.stroke();
 
     var tip = pts[N - 1];
-    ctx.fillStyle = "#f2879c";
+    ctx.fillStyle = back ? "#ffd47a" : "#f2879c";
     circle(tip.x, tip.y, 5.4);
     ctx.fillStyle = "rgba(255,255,255,0.45)";
     circle(tip.x - 1.5, tip.y - 1.7, 1.8);
@@ -2024,9 +2155,10 @@
   // HUD + MENU
   // =====================================================================
 
-  var elState, elLamp, elKO, elLost, elHint, elLevelName, elMenu, hintTimer = null;
+  var elState, elLamp, elKO, elLost, elScore, elHint, elLevelName, elMenu, hintTimer = null;
 
   function setScore() {
+    if (elScore) elScore.textContent = String(score);
     if (elKO) elKO.textContent = String(ko);
     if (elLost) elLost.textContent = String(lost);
   }
@@ -2194,6 +2326,7 @@
     elState = document.getElementById("fj-state");
     elLamp = document.getElementById("fj-lamp");
     elKO = document.getElementById("fj-ko");
+    elScore = document.getElementById("fj-score");
     elLost = document.getElementById("fj-lost");
     elHint = document.getElementById("fj-hint");
     elLevelName = document.getElementById("fj-levelname");
@@ -2316,7 +2449,8 @@
       state: function () {
         return {
           player: player, enemies: enemies, hazards: hazards, lanes: lanes,
-          debris: debris, level: level, ko: ko, lost: lost
+          debris: debris, helmets: helmets, level: level,
+          ko: ko, lost: lost, score: score
         };
       },
       startTongue: startTongue, requestHop: requestHop, snapDir: snapDir,
