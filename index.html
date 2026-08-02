@@ -665,6 +665,13 @@
   function road(dir, speed, gap) {
     return { type: "road", dir: dir, speed: speed, len: 1.6, gap: gap };
   }
+  // A river carries a fixed cast of logs instead of spawning them on a timer:
+  // `count` of them, evenly spaced, each one going under at the far edge and
+  // surfacing again at the near one. The river is never empty and never
+  // crowded, so its rhythm is something you can learn rather than wait out.
+  function river(dir, speed, len, count) {
+    return { type: "water", dir: dir, speed: speed, len: len, gap: 0, loop: count };
+  }
 
   var LEVELS = [
     {
@@ -705,6 +712,17 @@
         for (var i = 0; i < 11; i++) L.push(grass());
         L[4] = road(1, 3.4, 5.5);
         L[5] = road(-1, 4.2, 6.5);
+        return L;
+      }
+    },
+    {
+      name: "The Waterwheel",
+      blurb: "Two rivers turning opposite ways, two logs apiece, going round forever. Grass to breathe on in between.",
+      lanes: function () {
+        var L = [];
+        for (var i = 0; i < 11; i++) L.push(grass());
+        L[1] = river(1, 1.5, 3, 2);
+        L[9] = river(-1, 1.5, 3, 2);
         return L;
       }
     },
@@ -1022,8 +1040,12 @@
     ko = 0;
     over = false;
 
+    seedLoopingLanes();
+
     // Let the traffic build up before anyone sees the level, or it opens on
-    // an empty stream and you stand about waiting for the first log.
+    // an empty stream and you stand about waiting for the first log. Looping
+    // rivers are already full, and every log in one pays the same lap, so the
+    // run-up only shifts their phase — it never bunches them up.
     for (var p = 0; p < 900; p++) updateHazards(1 / 60);
 
     var row = spawnRow(), spread = Math.min(2, bound());
@@ -1553,25 +1575,54 @@
   // HAZARDS — logs and carts
   // =====================================================================
 
+  // Where a lane's traffic comes on from, just clear of the board.
+  function laneEntry(lane) {
+    var R = bound();
+    return lane.dir > 0 ? -R - 0.5 - lane.len / 2 : R + 0.5 + lane.len / 2;
+  }
+
+  // How far a log travels between surfacing and going under again. It works
+  // out as the width of the board, whatever the log's own length.
+  function laneRun() { return 2 * bound() + 1; }
+
+  function makeHazard(lane) {
+    return {
+      kind: lane.type === "water" ? "log" : "car",
+      x: laneEntry(lane),
+      y: lane.y,
+      len: lane.len,
+      vx: lane.dir * lane.speed,
+      loop: !!lane.loop,
+      sinking: 0,
+      tint: Math.random()
+    };
+  }
+
+  // The fixed cast a looping river carries, laid out evenly along its run.
+  function seedLoopingLanes() {
+    for (var i = 0; i < lanes.length; i++) {
+      var lane = lanes[i];
+      if (!lane.loop) continue;
+      for (var n = 0; n < lane.loop; n++) {
+        var z = makeHazard(lane);
+        z.x += lane.dir * (laneRun() * n / lane.loop);
+        hazards.push(z);
+      }
+    }
+  }
+
   function updateHazards(dt) {
     var R = bound();
 
     for (var i = 0; i < lanes.length; i++) {
       var lane = lanes[i];
       if (lane.type === "grass") continue;
+      if (lane.loop) continue;      // a fixed cast, seeded once at load
       lane.timer -= dt;
       if (lane.timer <= 0) {
         var span = lane.len + lane.gap;
         lane.timer = span / lane.speed;
-        hazards.push({
-          kind: lane.type === "water" ? "log" : "car",
-          x: lane.dir > 0 ? -R - 0.5 - lane.len / 2 : R + 0.5 + lane.len / 2,
-          y: lane.y,
-          len: lane.len,
-          vx: lane.dir * lane.speed,
-          sinking: 0,
-          tint: Math.random()
-        });
+        hazards.push(makeHazard(lane));
       }
     }
 
@@ -1581,7 +1632,17 @@
 
       if (z.sinking > 0) {
         z.sinking -= dt;
-        if (z.sinking <= 0) hazards.splice(h, 1);
+        if (z.sinking > 0) continue;
+        // A looping log surfaces again at the near edge rather than being
+        // taken off the board. It still goes under at the far one, and still
+        // takes its passenger down with it — the loop is what happens after,
+        // and it is why the river is never empty.
+        if (z.loop) {
+          z.x = laneEntry(laneAt(z.y));
+          z.sinking = 0;
+        } else {
+          hazards.splice(h, 1);
+        }
         continue;
       }
 

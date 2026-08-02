@@ -64,6 +64,7 @@ const levelNamed = (name) => {
 const PLAIN = levelNamed("The Tiltyard");
 const MILLRACE = levelNamed("Millrace");
 const ROAD = levelNamed("The King's Road");
+const WHEEL = levelNamed("The Waterwheel");
 const TOLL = levelNamed("Toll Crossing");
 
 // Park the rivals where they cannot interfere with a test. Clearing `rider`
@@ -371,6 +372,81 @@ function freshLevel(i = 0) {
   }
   check(bad === 0, "nothing escapes to infinity over a minute of traffic");
   check(peak < 60, `hazard count stays bounded (peak ${peak})`);
+}
+
+// --- 8b. a looping river keeps exactly the logs it started with ----------
+{
+  freshLevel(WHEEL);
+  const s = FJ.state();
+  const rivers = s.lanes.filter(l => l.loop);
+  check(rivers.length === 2, `The Waterwheel has two looping rivers (${rivers.length})`);
+  check(rivers[0].dir === -rivers[1].dir, "and they run opposite ways");
+  check(s.lanes.filter(l => l.type !== "grass").length === 2,
+    "with nothing but grass either side of them");
+
+  const countOn = (row) => FJ.state().hazards.filter(z => z.y === row).length;
+  const rows = rivers.map(l => l.y);
+
+  // Two logs per river, now and for the next two minutes — a looping river
+  // must neither run dry nor accumulate.
+  let low = [Infinity, Infinity], high = [0, 0], sawSink = 0, wandered = 0;
+  for (let i = 0; i < 120 * 60; i++) {
+    step(1 / 60);
+    for (const z of FJ.state().hazards) {
+      if (z.sinking > 0) sawSink++;
+      if (Math.abs(z.x) > R() + 6) wandered++;
+    }
+    rows.forEach((row, k) => {
+      const n = countOn(row);
+      low[k] = Math.min(low[k], n);
+      high[k] = Math.max(high[k], n);
+    });
+  }
+  check(low[0] === 2 && high[0] === 2 && low[1] === 2 && high[1] === 2,
+    `each river carries exactly two logs throughout (${low}..${high})`);
+  check(sawSink > 0, "the logs do still go under at the far edge");
+  check(wandered === 0, "and none of them wanders off the board");
+
+  // Both directions are represented, and each log keeps its own.
+  const dirs = FJ.state().hazards.map(z => Math.sign(z.vx));
+  check(dirs.includes(1) && dirs.includes(-1), "logs run both ways at once");
+
+  // Evenly spaced: two logs on one river should sit about half a lap apart.
+  const pair = FJ.state().hazards.filter(z => z.y === rows[0]);
+  const apart = Math.abs(pair[0].x - pair[1].x);
+  const run = 2 * R() + 1;
+  check(Math.abs(apart - run / 2) < run * 0.2,
+    `the two are spaced about half a lap apart (${apart.toFixed(1)} of ${run})`);
+}
+
+// --- 8c. a looping log still drowns whoever rides it to the end ----------
+{
+  freshLevel(WHEEL);
+  const s = FJ.state();
+  const river = s.lanes.find(l => l.loop && l.dir > 0);
+  clearHazards();
+  const log = { kind: "log", x: R() - 1.5, y: river.y, len: 3,
+                vx: river.dir * river.speed, loop: true, sinking: 0, tint: 0.5 };
+  s.hazards.push(log);
+
+  s.players[0].x = log.x; s.players[0].y = river.y;
+  s.players[0].state = "idle"; s.players[0].dying = null;
+  const livesBefore = FJ.state().lives;
+
+  let drowned = false;
+  for (let i = 0; i < 60 * 8 && !drowned; i++) {
+    step(1 / 60);
+    if (FJ.state().player.dying === "water") drowned = true;
+  }
+  check(drowned, "riding a looping log off the far edge still drowns you");
+  check(FJ.state().lives < livesBefore, "and it costs a life");
+
+  // The log itself comes back rather than being lost with its passenger.
+  step(2.5);
+  const back = FJ.state().hazards.filter(z => z.y === river.y);
+  check(back.length === 1 && back[0].sinking === 0 && back[0].x < 0,
+    `and the log surfaces again on the near side (${back.length} at ` +
+    `${back.length ? back[0].x.toFixed(1) : "-"})`);
 }
 
 // --- 9. tongue: reach, curve, and hits ----------------------------------

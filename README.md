@@ -72,10 +72,20 @@ device before a gesture.
 | **Millrace** | One stream through the middle. |
 | **Twin Races** | Two streams running opposite ways, dry ground between. |
 | **The King's Road** | A two-lane road, horse-drawn carts in both directions. |
+| **The Waterwheel** | A looping river near each edge, running opposite ways, two logs apiece. |
 | **Toll Crossing** | Stream, road, stream. |
 
 Each is a stack of lanes — grass, water or road — and the water and road lanes
 carry their own traffic. Adding one is a few lines in `LEVELS`.
+
+A **river** (`river(dir, speed, len, count)`) is water with a fixed cast
+instead of a spawn timer: `count` logs, seeded evenly along the run at load and
+recycled forever. Each still goes under at the far edge — taking its passenger
+with it, same as any log — but it surfaces again at the near edge rather than
+leaving the board. The river is therefore never empty and never crowded, so its
+rhythm is something you can learn instead of something you wait out. Every log
+in a river pays the same lap, so their spacing is fixed at load and cannot
+drift.
 
 ## The rules being tested
 
@@ -326,6 +336,10 @@ hard off all eight edges and corners all stay on the board and none goes
 missing, that a rival crosses the field to steal a helm, that lives run down
 and end the round and that a finished round stops simulating, that movement
 frees up the instant you release,
+that a looping river carries exactly its two logs for two solid minutes without
+running dry or accumulating while still sending them under at the far edge,
+that riding one of those off the end drowns you and costs a life just the same
+while the log itself surfaces again on the near side,
 that a rival closes and eventually unhorses you, that a rival's tongue sweeping
 over another rival leaves it mounted with crossfire off and unhorses it with
 crossfire on, that a knight unhorsed with
