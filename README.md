@@ -72,20 +72,34 @@ device before a gesture.
 | **Millrace** | One stream through the middle. |
 | **Twin Races** | Two streams running opposite ways, dry ground between. |
 | **The King's Road** | A two-lane road, horse-drawn carts in both directions. |
-| **The Waterwheel** | A looping river near each edge, running opposite ways, two logs apiece. |
+| **The Waterwheel** | A river near each edge that joins up on itself, running opposite ways, two logs apiece. |
 | **Toll Crossing** | Stream, road, stream. |
 
 Each is a stack of lanes — grass, water or road — and the water and road lanes
 carry their own traffic. Adding one is a few lines in `LEVELS`.
 
-A **river** (`river(dir, speed, len, count)`) is water with a fixed cast
-instead of a spawn timer: `count` logs, seeded evenly along the run at load and
-recycled forever. Each still goes under at the far edge — taking its passenger
-with it, same as any log — but it surfaces again at the near edge rather than
-leaving the board. The river is therefore never empty and never crowded, so its
-rhythm is something you can learn instead of something you wait out. Every log
-in a river pays the same lap, so their spacing is fixed at load and cannot
-drift.
+A **river** (`river(dir, speed, len, count)`) is water that **joins up on
+itself** — a circle rather than a stretch with two ends. It carries a fixed cast
+of `count` logs, seeded evenly round it at load, going round forever. Nothing
+spawns and nothing sinks, so the river is never empty and never crowded, and
+its rhythm is something you can learn instead of something you wait out.
+Spacing is set once and cannot drift.
+
+The loop belongs to **the lane, not the board**. `wrapEdges` is untouched: the
+edges are still walls, you still cannot hop across one, and every other lane
+behaves as it did. The river is the one place a mount crosses an edge with the
+walls up, and that is the point of it — the water joins up even though the
+ground does not. Riding a river is therefore safe, and slow, and leaves you
+sitting still in front of everyone's tongue.
+
+Two consequences worth knowing if you touch this code. Distances along a
+looping lane go through `laneGap`/`loopDelta`, not plain subtraction, or a log
+straddling the seam stops holding up the knight standing on it. And a looping
+lane is **clipped to the board** when it draws: the half of a log that has
+crossed the seam is already being drawn arriving at the other side, so letting
+it also hang off the end makes it read half as long again. Ordinary lanes
+deliberately show their traffic approaching from off-board, which is why that
+clip is per-lane rather than global.
 
 ## The rules being tested
 
@@ -232,7 +246,9 @@ steering comes from: your finger, or the direction of you.
 - **Wrapping applies to hops, not to drifting.** Hop off an edge and you come
   out the other side; get carried off one by a log and you drown either way.
   That asymmetry is deliberate — it is what makes riding a log to the end a
-  real risk rather than a free ride round the board.
+  real risk rather than a free ride round the board. A **looping river** is the
+  one exception, and it is opt-in per lane: that water is a circle, so drifting
+  on it does come round. See the levels section.
 - With wrapping on, a hop's landing is where the wrap happens, so the flight
   itself runs off the edge while an on-screen copy arrives at the other side.
   Copies are drawn only when a mount is genuinely past the last cell; ghosting
@@ -337,9 +353,12 @@ missing, that a rival crosses the field to steal a helm, that lives run down
 and end the round and that a finished round stops simulating, that movement
 frees up the instant you release,
 that a looping river carries exactly its two logs for two solid minutes without
-running dry or accumulating while still sending them under at the far edge,
-that riding one of those off the end drowns you and costs a life just the same
-while the log itself surfaces again on the near side,
+running dry, accumulating, sinking one, letting one off the circle or letting
+their spacing drift by so much as a float's worth, that riding one carries you
+round and round for thirty seconds without a single frame off your log or off
+the circle and without costing a life, that rider and log stay locked together
+across the seam, and that an ordinary stream is untouched by any of it and
+still drowns you at the end,
 that a rival closes and eventually unhorses you, that a rival's tongue sweeping
 over another rival leaves it mounted with crossfire off and unhorses it with
 crossfire on, that a knight unhorsed with

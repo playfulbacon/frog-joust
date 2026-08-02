@@ -665,10 +665,11 @@
   function road(dir, speed, gap) {
     return { type: "road", dir: dir, speed: speed, len: 1.6, gap: gap };
   }
-  // A river carries a fixed cast of logs instead of spawning them on a timer:
-  // `count` of them, evenly spaced, each one going under at the far edge and
-  // surfacing again at the near one. The river is never empty and never
-  // crowded, so its rhythm is something you can learn rather than wait out.
+  // A river is water that joins up on itself: a circle rather than a stretch
+  // with two ends. It carries a fixed cast of `count` logs, evenly spaced,
+  // going round forever and taking their passengers with them. Nothing spawns
+  // and nothing sinks, so the river is never empty and never crowded, and its
+  // rhythm is something you can learn rather than wait out.
   function river(dir, speed, len, count) {
     return { type: "water", dir: dir, speed: speed, len: len, gap: 0, loop: count };
   }
@@ -717,7 +718,7 @@
     },
     {
       name: "The Waterwheel",
-      blurb: "Two rivers turning opposite ways, two logs apiece, going round forever. Grass to breathe on in between.",
+      blurb: "Two rivers that join up on themselves, turning opposite ways. Ride a log all the way round if you like. Grass in between to breathe on.",
       lanes: function () {
         var L = [];
         for (var i = 0; i < 11; i++) L.push(grass());
@@ -933,24 +934,68 @@
     return Math.hypot(wrapDelta(b.x - a.x), wrapDelta(b.y - a.y));
   }
 
+  // A LOOPING RIVER is a circle, independent of the `wrapEdges` setting. The
+  // water itself joins up: a log leaving one end is the same log arriving at
+  // the other, and it keeps its passenger the whole way round. That is a
+  // property of those lanes, not of the board — the edges are still walls, you
+  // still cannot hop across them, and every other lane behaves as it did.
+  //
+  // The circle runs from one outer edge to the other, so its circumference is
+  // the arena width and positions live in [-(R+0.5), R+0.5).
+  function loopX(v) {
+    var s = CFG.arena;
+    return v - Math.round(v / s) * s;
+  }
+  function loopDelta(d) {
+    var s = CFG.arena;
+    return d - Math.round(d / s) * s;
+  }
+  function laneLoops(y) { return !!laneAt(y).loop; }
+
   // Call fn for a position and for every wrapped copy of it that could also be
   // on screen. This is what makes a hop across the edge look continuous rather
   // than like a teleport: the frog leaves one side while its copy arrives at
   // the other, and on landing the copy simply becomes the real thing.
-  function eachWrap(x, y, fn) {
-    if (!wrapping()) { fn(x, y); return; }
+  function eachWrap(x, y, fn, pad) {
     var s = CFG.arena, R = bound();
     var xs = [0], ys = [0];
-    // Only once the mount is genuinely PAST the last cell — which only happens
-    // mid-hop — is a second copy wanted. Ghosting anything merely near an edge
-    // would leave duplicate frogs parked outside the board.
-    if (x > R) xs.push(-s);
-    if (x < -R) xs.push(s);
-    if (y > R) ys.push(-s);
-    if (y < -R) ys.push(s);
+    if (wrapping()) {
+      // Only once the mount is genuinely PAST the last cell — which only
+      // happens mid-hop — is a second copy wanted. Ghosting anything merely
+      // near an edge would leave duplicate frogs parked outside the board.
+      if (x > R) xs.push(-s);
+      if (x < -R) xs.push(s);
+      if (y > R) ys.push(-s);
+      if (y < -R) ys.push(s);
+    }
+    // A looping river joins up whatever the wrap setting says, so anything on
+    // one has to be drawn arriving at the far end while it is still leaving
+    // this one. Here the test is overlap, not being past the edge: the object
+    // straddles the seam for real, and both halves of it are on screen.
+    var loops = lanes && laneLoops(y);
+    if (loops) {
+      var half = pad === undefined ? 0.6 : pad;
+      if (x + half > s / 2 && xs.indexOf(-s) < 0) xs.push(-s);
+      if (x - half < -s / 2 && xs.indexOf(s) < 0) xs.push(s);
+      // And the part that has crossed the seam must not also be drawn hanging
+      // off the end, or the log reads as half as long again. Ordinary lanes
+      // deliberately show their traffic approaching from off-board — a circle
+      // has nowhere to approach from, so it is clipped to the board instead.
+      clipBoard(true);
+    }
     for (var i = 0; i < xs.length; i++) {
       for (var j = 0; j < ys.length; j++) fn(x + xs[i], y + ys[j]);
     }
+    if (loops) clipBoard(false);
+  }
+
+  function clipBoard(on) {
+    if (!on) { ctx.restore(); return; }
+    var edge = (bound() + 0.5) * CFG.cell;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(-edge, -1e4, edge * 2, 2e4);
+    ctx.clip();
   }
 
   // =====================================================================
@@ -1581,10 +1626,6 @@
     return lane.dir > 0 ? -R - 0.5 - lane.len / 2 : R + 0.5 + lane.len / 2;
   }
 
-  // How far a log travels between surfacing and going under again. It works
-  // out as the width of the board, whatever the log's own length.
-  function laneRun() { return 2 * bound() + 1; }
-
   function makeHazard(lane) {
     return {
       kind: lane.type === "water" ? "log" : "car",
@@ -1598,14 +1639,14 @@
     };
   }
 
-  // The fixed cast a looping river carries, laid out evenly along its run.
+  // The fixed cast a looping river carries, laid out evenly round the circle.
   function seedLoopingLanes() {
     for (var i = 0; i < lanes.length; i++) {
       var lane = lanes[i];
       if (!lane.loop) continue;
       for (var n = 0; n < lane.loop; n++) {
         var z = makeHazard(lane);
-        z.x += lane.dir * (laneRun() * n / lane.loop);
+        z.x = loopX(-bound() + CFG.arena * n / lane.loop);
         hazards.push(z);
       }
     }
@@ -1630,19 +1671,13 @@
       var z = hazards[h];
       z.x += z.vx * dt;
 
+      // On a looping river there is no far edge to reach. The log crosses the
+      // seam and carries on, and so does anything standing on it.
+      if (z.loop) { z.x = loopX(z.x); continue; }
+
       if (z.sinking > 0) {
         z.sinking -= dt;
-        if (z.sinking > 0) continue;
-        // A looping log surfaces again at the near edge rather than being
-        // taken off the board. It still goes under at the far one, and still
-        // takes its passenger down with it — the loop is what happens after,
-        // and it is why the river is never empty.
-        if (z.loop) {
-          z.x = laneEntry(laneAt(z.y));
-          z.sinking = 0;
-        } else {
-          hazards.splice(h, 1);
-        }
+        if (z.sinking <= 0) hazards.splice(h, 1);
         continue;
       }
 
@@ -1660,13 +1695,19 @@
     }
   }
 
+  // How far along a lane one thing is from another. On a looping river the
+  // short way round may be across the seam.
+  function laneGap(z, x) {
+    return z.loop ? Math.abs(loopDelta(x - z.x)) : Math.abs(x - z.x);
+  }
+
   // The log holding a mount up, if there is one. Sinking logs hold nobody.
   function supportUnder(m) {
     var row = Math.round(m.y);
     for (var i = 0; i < hazards.length; i++) {
       var z = hazards[i];
       if (z.kind !== "log" || z.sinking > 0 || z.y !== row) continue;
-      if (Math.abs(m.x - z.x) <= z.len / 2) return z;
+      if (laneGap(z, m.x) <= z.len / 2) return z;
     }
     return null;
   }
@@ -1696,17 +1737,23 @@
       var z = hazards[i];
       if (z.kind !== "log" || z.sinking > 0 || z.y !== Math.round(cy)) continue;
       var half = z.len / 2;
-      if (Math.abs(cx - z.x) <= half) return true;
+      if (laneGap(z, cx) <= half) return true;
       if (!z.vx) continue;
       var lead = z.x + (z.vx > 0 ? half : -half);
-      var t = (cx - lead) / z.vx;
+      var t = (z.loop ? loopDelta(cx - lead) : cx - lead) / z.vx;
+      // Round the circle rather than never: on a looping river a log that has
+      // just gone past is a log on its way back.
+      if (z.loop && t < 0) t += CFG.arena / Math.abs(z.vx);
       if (t >= 0 && t <= horizon) return true;
     }
     return false;
   }
 
-  // A log about to go under the far edge, taking its passenger with it.
+  // A log about to go under the far edge, taking its passenger with it. A
+  // looping log never is — it comes round instead — so a rival is happy to
+  // stay aboard one for as long as it likes.
   function logDoomed(z) {
+    if (z.loop) return false;
     var R = bound();
     var lead = z.x + (z.vx > 0 ? z.len / 2 : -z.len / 2);
     return z.vx > 0 ? lead > R - 0.75 : lead < -R + 0.75;
@@ -1774,7 +1821,12 @@
 
   function driftOnLog(m, dt) {
     var log = supportUnder(m);
-    if (log) m.x += log.vx * dt;
+    if (!log) return null;
+    m.x += log.vx * dt;
+    // A looping river takes you round with it. This is the one place a mount
+    // crosses an edge with the walls up, and it is the whole point of the
+    // lane: the water joins up even though the ground does not.
+    if (log.loop) m.x = loopX(m.x);
     return log;
   }
 
@@ -2062,7 +2114,7 @@
     for (var i = 0; i < hazards.length; i++) {
       var z = hazards[i];
       if (z.kind !== "log" || z.sinking > 0 || z.y !== ty) continue;
-      if (Math.abs(tx - z.x) <= z.len / 2 && !logDoomed(z)) return true;
+      if (laneGap(z, tx) <= z.len / 2 && !logDoomed(z)) return true;
     }
     return false;
   }
@@ -2114,8 +2166,13 @@
         }
       } else {
         var log = supportUnder(h);
-        // Riding a log can only carry it to the boundary, never over it.
-        if (log) h.x = clamp(h.x + log.vx * dt, -R, R);
+        // Riding a log can only carry it to the boundary, never over it —
+        // unless the river loops, in which case it goes round like everything
+        // else on that water rather than being scraped off at the edge.
+        if (log) {
+          h.x += log.vx * dt;
+          h.x = log.loop ? loopX(h.x) : clamp(h.x, -R, R);
+        }
       }
 
       if (h.landed) {
@@ -2504,7 +2561,11 @@
   }
 
   function drawLog(z) {
-    var p = proj(z.x, z.y, 0);
+    eachWrap(z.x, z.y, function (wx, wy) { drawLogAt(z, wx, wy); }, z.len / 2);
+  }
+
+  function drawLogAt(z, zx, zy) {
+    var p = proj(zx, zy, 0);
     var w = z.len * CFG.cell, h = CFG.cell * ISO * 0.72;
     ctx.save();
     ctx.globalAlpha = z.sinking > 0 ? clamp(z.sinking / 0.28, 0, 1) : 1;
@@ -2544,9 +2605,12 @@
     // it is about to be gone.
     var left = CFG.helmetLife - h.life;
     if (left < 3 && Math.sin(clockT * 14) < -0.2) return;
+    eachWrap(h.x, h.y, function (wx, wy) { drawHelmetAt(h, wx, wy); }, 0.25);
+  }
 
-    drawShadow(h.x, h.y, h.z, 7);
-    var p = proj(h.x, h.y, h.z + (h.landed ? 3 + Math.sin(clockT * 3 + h.rot) * 1.5 : 0));
+  function drawHelmetAt(h, hx, hy) {
+    drawShadow(hx, hy, h.z, 7);
+    var p = proj(hx, hy, h.z + (h.landed ? 3 + Math.sin(clockT * 3 + h.rot) * 1.5 : 0));
     ctx.save();
     ctx.translate(p.x, p.y);
     ctx.rotate(h.rot);

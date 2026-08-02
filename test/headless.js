@@ -374,11 +374,14 @@ function freshLevel(i = 0) {
   check(peak < 60, `hazard count stays bounded (peak ${peak})`);
 }
 
-// --- 8b. a looping river keeps exactly the logs it started with ----------
+// --- 8b. a looping river is a circle, and never runs dry ----------------
 {
   freshLevel(WHEEL);
   const s = FJ.state();
   const rivers = s.lanes.filter(l => l.loop);
+  const SPAN = FJ.CFG.arena;
+  const loopGap = (a, b) => Math.abs((a - b) - Math.round((a - b) / SPAN) * SPAN);
+
   check(rivers.length === 2, `The Waterwheel has two looping rivers (${rivers.length})`);
   check(rivers[0].dir === -rivers[1].dir, "and they run opposite ways");
   check(s.lanes.filter(l => l.type !== "grass").length === 2,
@@ -387,66 +390,100 @@ function freshLevel(i = 0) {
   const countOn = (row) => FJ.state().hazards.filter(z => z.y === row).length;
   const rows = rivers.map(l => l.y);
 
-  // Two logs per river, now and for the next two minutes — a looping river
-  // must neither run dry nor accumulate.
-  let low = [Infinity, Infinity], high = [0, 0], sawSink = 0, wandered = 0;
+  // Two logs per river, now and for the next two minutes. A circle has no far
+  // edge to be removed at and no near edge to be spawned from, so the cast is
+  // fixed by construction — this is the check that it really is.
+  let low = [Infinity, Infinity], high = [0, 0];
+  let sank = 0, strayed = 0, gapDrift = 0;
+  const firstGap = loopGap(...FJ.state().hazards.filter(z => z.y === rows[0]).map(z => z.x));
   for (let i = 0; i < 120 * 60; i++) {
     step(1 / 60);
     for (const z of FJ.state().hazards) {
-      if (z.sinking > 0) sawSink++;
-      if (Math.abs(z.x) > R() + 6) wandered++;
+      if (z.sinking > 0) sank++;
+      // Every position stays on the circle: no drifting off to infinity, and
+      // no waiting about off-board either.
+      if (Math.abs(z.x) > SPAN / 2 + 1e-9) strayed++;
     }
     rows.forEach((row, k) => {
       const n = countOn(row);
       low[k] = Math.min(low[k], n);
       high[k] = Math.max(high[k], n);
     });
+    const pair = FJ.state().hazards.filter(z => z.y === rows[0]).map(z => z.x);
+    if (pair.length === 2) gapDrift = Math.max(gapDrift, Math.abs(loopGap(...pair) - firstGap));
   }
   check(low[0] === 2 && high[0] === 2 && low[1] === 2 && high[1] === 2,
     `each river carries exactly two logs throughout (${low}..${high})`);
-  check(sawSink > 0, "the logs do still go under at the far edge");
-  check(wandered === 0, "and none of them wanders off the board");
+  check(sank === 0, "no log ever goes under — a looping river has no far edge");
+  check(strayed === 0, "and none of them leaves the circle");
+  check(gapDrift < 1e-6,
+    `their spacing never drifts over two minutes (${gapDrift.toExponential(1)} cells)`);
 
-  // Both directions are represented, and each log keeps its own.
   const dirs = FJ.state().hazards.map(z => Math.sign(z.vx));
   check(dirs.includes(1) && dirs.includes(-1), "logs run both ways at once");
-
-  // Evenly spaced: two logs on one river should sit about half a lap apart.
-  const pair = FJ.state().hazards.filter(z => z.y === rows[0]);
-  const apart = Math.abs(pair[0].x - pair[1].x);
-  const run = 2 * R() + 1;
-  check(Math.abs(apart - run / 2) < run * 0.2,
-    `the two are spaced about half a lap apart (${apart.toFixed(1)} of ${run})`);
+  check(Math.abs(firstGap - SPAN / 2) < 1e-9,
+    `the two sit exactly half a lap apart (${firstGap} of ${SPAN})`);
 }
 
-// --- 8c. a looping log still drowns whoever rides it to the end ----------
+// --- 8c. the river carries you round rather than drowning you -----------
 {
   freshLevel(WHEEL);
   const s = FJ.state();
   const river = s.lanes.find(l => l.loop && l.dir > 0);
+  const SPAN = FJ.CFG.arena;
+
+  // Start aboard a log that is already almost at the edge, so the very first
+  // thing that happens is the crossing.
   clearHazards();
-  const log = { kind: "log", x: R() - 1.5, y: river.y, len: 3,
+  const log = { kind: "log", x: R() - 0.5, y: river.y, len: 3,
                 vx: river.dir * river.speed, loop: true, sinking: 0, tint: 0.5 };
   s.hazards.push(log);
-
   s.players[0].x = log.x; s.players[0].y = river.y;
   s.players[0].state = "idle"; s.players[0].dying = null;
+  s.players[0].safeT = 1e6;
   const livesBefore = FJ.state().lives;
+
+  // A whole lap and a bit. If the seam let go of either the log or its
+  // passenger, one of them ends up over open water and this drowns.
+  let laps = 0, last = FJ.state().player.x, drowned = null, off = 0;
+  for (let i = 0; i < 60 * 30; i++) {
+    step(1 / 60);
+    const p = FJ.state().player;
+    if (p.dying) { drowned = p.dying; break; }
+    if (p.x < last - SPAN / 2) laps++;      // came back round the seam
+    last = p.x;
+    if (!FJ.supportUnder(p)) off++;         // never once off its log
+    if (Math.abs(p.x) > SPAN / 2 + 1e-9) off++;
+  }
+  check(drowned === null, `riding a looping river does not drown you (${drowned})`);
+  check(laps >= 3, `it carries you round and round (${laps} laps in 30s)`);
+  check(off === 0, "and you are never once off the log or off the circle");
+  check(FJ.state().lives === livesBefore, "so it costs no lives");
+
+  // The log is where the rider is, all the way across the seam.
+  check(Math.abs(FJ.state().player.x - FJ.state().hazards[0].x) < 1e-6,
+    "rider and log stay locked together across the seam");
+}
+
+// --- 8d. only looping lanes loop — an ordinary stream still drowns you ---
+{
+  freshLevel(MILLRACE);
+  const s = FJ.state();
+  const lane = s.lanes.find(l => l.type === "water");
+  check(!lane.loop, "Millrace's stream is not a loop");
+  clearHazards();
+  s.hazards.push({ kind: "log", x: R() - 1.5, y: lane.y, len: 3,
+                   vx: lane.dir * lane.speed, loop: false, sinking: 0, tint: 0.5 });
+  s.players[0].x = R() - 1.5; s.players[0].y = lane.y;
+  s.players[0].state = "idle"; s.players[0].dying = null;
+  s.players[0].safeT = 1e6;
 
   let drowned = false;
   for (let i = 0; i < 60 * 8 && !drowned; i++) {
     step(1 / 60);
     if (FJ.state().player.dying === "water") drowned = true;
   }
-  check(drowned, "riding a looping log off the far edge still drowns you");
-  check(FJ.state().lives < livesBefore, "and it costs a life");
-
-  // The log itself comes back rather than being lost with its passenger.
-  step(2.5);
-  const back = FJ.state().hazards.filter(z => z.y === river.y);
-  check(back.length === 1 && back[0].sinking === 0 && back[0].x < 0,
-    `and the log surfaces again on the near side (${back.length} at ` +
-    `${back.length ? back[0].x.toFixed(1) : "-"})`);
+  check(drowned, "riding an ordinary log to the end still drowns you");
 }
 
 // --- 9. tongue: reach, curve, and hits ----------------------------------
